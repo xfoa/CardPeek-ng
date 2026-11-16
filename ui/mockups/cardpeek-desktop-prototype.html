@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>CardPeek NG - Desktop UI Prototype</title>
+  <style>
+    :root {
+      --ink: #17242b;
+      --muted: #66747c;
+      --faint: #8c989e;
+      --line: #dce3e5;
+      --line-strong: #c8d2d5;
+      --paper: #ffffff;
+      --canvas: #f3f5f4;
+      --panel: #f8faf9;
+      --nav: #14282d;
+      --nav-soft: #203a40;
+      --accent: #087a70;
+      --accent-dark: #056158;
+      --accent-soft: #e1f3ef;
+      --replay: #9b5d16;
+      --replay-soft: #fff0d9;
+      --danger: #a13b3b;
+      --danger-soft: #fff0ee;
+      --code: #eaf0ef;
+      --shadow: 0 12px 40px rgba(20, 40, 45, .14);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      background: var(--canvas);
+      color: var(--ink);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 3px solid rgba(8, 122, 112, .25);
+      outline-offset: 2px;
+    }
+
+    .skip-link {
+      position: fixed;
+      left: 16px;
+      top: -60px;
+      z-index: 100;
+      background: var(--paper);
+      padding: 10px 14px;
+    }
+    .skip-link:focus { top: 12px; }
+
+    .app-header {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 24px;
+      color: #f7fbfa;
+      background: var(--nav);
+      border-bottom: 1px solid #2b4449;
+    }
+
+    .brand { display: flex; align-items: center; gap: 11px; min-width: 210px; }
+    .brand-mark {
+      width: 31px;
+      height: 38px;
+      border: 2px solid #87d5c7;
+      border-radius: 5px;
+      position: relative;
+    }
+    .brand-mark::before {
+      content: "";
+      position: absolute;
+      width: 13px;
+      height: 10px;
+      left: 7px;
+      top: 7px;
+      border: 1px solid #87d5c7;
+      border-radius: 2px;
+    }
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      width: 15px;
+      height: 2px;
+      left: 6px;
+      bottom: 7px;
+      background: #87d5c7;
+      box-shadow: 0 -5px 0 #87d5c7;
+    }
+    .brand-name { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+    .brand-name span { color: #87d5c7; }
+    .prototype-tag {
+      display: block;
+      color: #a8babe;
+      font-size: 9px;
+      line-height: 1;
+      letter-spacing: 1.6px;
+      margin-top: 2px;
+      text-transform: uppercase;
+    }
+
+    .header-session {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #c4d1d3;
+      font-size: 12px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: .7px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .badge-replay { color: #7b480d; background: var(--replay-soft); }
+    .app-header .badge-replay { color: #ffdbaa; background: #4c3c25; }
+    .badge-local { color: #bce4da; background: var(--nav-soft); }
+    .header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+    .button {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      background: var(--paper);
+      font-size: 12px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .button:hover { background: var(--panel); border-color: #a9b8bb; }
+    .button-primary { color: white; background: var(--accent); border-color: var(--accent); }
+    .button-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+    .button-dark-ghost { color: #e4eeee; background: transparent; border-color: #476066; }
+    .button-dark-ghost:hover { background: var(--nav-soft); border-color: #6b8287; }
+    .button-quiet { background: transparent; border-color: transparent; color: var(--accent-dark); }
+    .button-danger { color: var(--danger); }
+    .button:disabled { opacity: .5; cursor: not-allowed; }
+    .button-wide { width: 100%; }
+
+    .icon { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .variant { display: none; min-height: calc(100vh - 66px); padding-bottom: 80px; }
+    .variant.active { display: grid; }
+
+    .pane { background: var(--paper); }
+    .pane-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 52px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .pane-title { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+    .section-label {
+      display: block;
+      margin: 0 0 7px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: .8px;
+      text-transform: uppercase;
+    }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .select, .text-input {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+    }
+    .field { margin-bottom: 18px; }
+    .field-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+
+    .status-line { display: flex; align-items: center; gap: 8px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #278c68; box-shadow: 0 0 0 3px #e3f3ec; }
+    .status-dot.offline { background: #89959a; box-shadow: 0 0 0 3px #edf0f1; }
+    .status-dot.running { background: #b27623; box-shadow: 0 0 0 3px #fff0d9; }
+
+    .notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 11px 12px;
+      border: 1px solid #ead7b8;
+      border-radius: 6px;
+      color: #6d4b20;
+      background: #fff9ef;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .notice strong { display: block; color: #593b18; }
+    .notice-safe { color: #286558; background: #f0f8f5; border-color: #cde4dc; }
+    .notice-safe strong { color: #205247; }
+    .notice-danger { color: #813d37; background: var(--danger-soft); border-color: #eccdC7; }
+
+    .progress-track { height: 5px; overflow: hidden; border-radius: 8px; background: #e6eceb; }
+    .progress-bar { width: 100%; height: 100%; background: var(--accent); transition: width .15s linear; }
+    .progress-meta { display: flex; justify-content: space-between; margin-top: 7px; color: var(--muted); font-size: 11px; }
+
+    .search-wrap { position: relative; }
+    .search-wrap .icon { position: absolute; left: 11px; top: 11px; color: var(--muted); }
+    .search-input { padding-left: 34px; }
+    .result-tree { padding: 8px; }
+    .tree-group { margin: 0; padding: 0; list-style: none; }
+    .tree-group .tree-group { margin-left: 18px; }
+    .tree-node {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      text-align: left;
+      font-size: 12px;
+    }
+    .tree-node:hover { background: #eff4f2; }
+    .tree-node.selected { color: #075f56; background: var(--accent-soft); font-weight: 650; }
+    .tree-node[hidden] { display: none; }
+    .tree-node.search-ancestor { color: var(--muted); }
+    .tree-node.search-ancestor .tree-value { visibility: hidden; }
+    .tree-chevron { width: 10px; color: var(--faint); font-size: 10px; }
+    .node-icon { width: 16px; color: var(--muted); text-align: center; font-size: 11px; }
+    .tree-value { margin-left: auto; max-width: 42%; color: var(--muted); font: 10px "SFMono-Regular", Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty-search { display: none; padding: 24px 12px; color: var(--muted); text-align: center; }
+
+    .detail-grid { display: grid; grid-template-columns: 110px 1fr; gap: 13px 12px; margin: 0; }
+    .detail-grid dt { color: var(--muted); font-size: 11px; }
+    .detail-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+    .code-value { display: block; padding: 10px; border-radius: 4px; background: var(--code); font: 11px/1.6 "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
+
+    .log-list { margin: 0; padding: 0; list-style: none; font: 11px/1.7 "SFMono-Regular", Consolas, monospace; }
+    .log-list li { display: grid; grid-template-columns: 74px 46px 1fr; gap: 10px; padding: 4px 0; border-bottom: 1px solid #edf1f0; }
+    .log-time { color: var(--faint); }
+    .log-level { color: var(--accent-dark); font-weight: 700; }
+    .log-list li:last-child { border-bottom: 0; }
+
+    .metric-line { display: flex; align-items: baseline; gap: 7px; }
+    .metric-line strong { font-size: 26px; line-height: 1; letter-spacing: -.8px; }
+    .metric-line span { color: var(--muted); font-size: 11px; }
+
+    .inspector.active { grid-template-columns: 270px minmax(0, 1fr); }
+    .setup-pane { border-right: 1px solid var(--line); }
+    .setup-body { padding: 20px 18px; }
+    .setup-section { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+    .setup-section:last-child { border: 0; }
+    .setup-actions { display: flex; gap: 7px; margin-top: 10px; }
+    .setup-actions .button { flex: 1; }
+    .inspector-workspace { min-width: 0; display: grid; grid-template-rows: auto minmax(320px, 1fr) 190px; }
+    .workspace-heading { display: flex; align-items: center; gap: 14px; padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--paper); }
+    .workspace-heading h1 { margin: 0; font-size: 20px; letter-spacing: -.4px; }
+    .workspace-heading p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+    .workspace-heading .search-wrap { width: min(300px, 38%); margin-left: auto; }
+    .inspector-results { min-height: 0; display: grid; grid-template-columns: minmax(330px, 1.25fr) minmax(290px, .75fr); }
+    .results-tree-pane { min-width: 0; overflow: auto; border-right: 1px solid var(--line); }
+    .details-pane { min-width: 0; overflow: auto; }
+    .details-body { padding: 20px; }
+    .details-body h2 { margin: 0 0 5px; font-size: 17px; }
+    .details-body > p { margin: 0 0 22px; color: var(--muted); font-size: 11px; }
+    .activity-pane { min-width: 0; overflow: hidden; border-top: 1px solid var(--line); }
+    .activity-pane .pane-header { min-height: 42px; padding-top: 8px; padding-bottom: 8px; }
+    .activity-body { display: grid; grid-template-columns: 1fr 230px; gap: 24px; padding: 10px 18px; }
+    .activity-summary { border-left: 1px solid var(--line); padding-left: 20px; }
+    .activity-summary .button { margin-top: 12px; }
+
+    .workflow.active { grid-template-columns: 218px minmax(0, 1fr) 330px; }
+    .workflow-rail { color: #d9e5e5; background: #1d3338; padding: 26px 18px; }
+    .workflow-rail h1 { margin: 0 0 4px; color: white; font-size: 16px; }
+    .workflow-rail > p { margin: 0 0 28px; color: #9db1b5; font-size: 11px; }
+    .steps { margin: 0; padding: 0; list-style: none; }
+    .step { position: relative; display: flex; gap: 12px; padding-bottom: 30px; }
+    .step:not(:last-child)::after { content: ""; position: absolute; left: 13px; top: 29px; bottom: 4px; width: 1px; background: #496167; }
+    .step-number { width: 27px; height: 27px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #597178; border-radius: 50%; color: #b9c8cb; font-size: 11px; }
+    .step.done .step-number { color: #102c27; background: #85cfbd; border-color: #85cfbd; }
+    .step.current .step-number { color: white; border-color: #9ad8ca; box-shadow: 0 0 0 4px rgba(133, 207, 189, .12); }
+    .step strong { display: block; color: #eff6f5; font-size: 12px; }
+    .step small { color: #9db1b5; font-size: 10px; }
+    .workflow-main { min-width: 0; }
+    .workflow-hero { padding: 28px 30px 24px; border-bottom: 1px solid var(--line); }
+    .eyebrow { margin: 0 0 6px; color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: 1px; text-transform: uppercase; }
+    .workflow-hero h2 { margin: 0; font-size: 25px; letter-spacing: -.7px; }
+    .workflow-hero > p { max-width: 600px; margin: 7px 0 22px; color: var(--muted); }
+    .run-panel { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .run-panel-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 15px; }
+    .run-panel h3 { margin: 0; font-size: 14px; }
+    .run-actions { display: flex; gap: 8px; }
+    .workflow-log { padding: 24px 30px; }
+    .workflow-log .pane-title { margin-bottom: 14px; }
+    .workflow-side { min-width: 0; border-left: 1px solid var(--line); }
+    .workflow-side-section { padding: 20px; border-bottom: 1px solid var(--line); }
+    .workflow-side-section h3 { margin: 0 0 13px; font-size: 13px; }
+    .config-list { margin: 0; }
+    .config-list div { padding: 10px 0; border-bottom: 1px solid #edf1f0; }
+    .config-list div:last-child { border: 0; }
+    .config-list dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+    .config-list dd { margin: 3px 0 0; font-size: 12px; }
+    .mini-results { border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+    .mini-results .tree-node { border-radius: 0; border-bottom: 1px solid #edf1f0; }
+    .export-stack { display: grid; gap: 8px; }
+
+    .results-view.active { grid-template-rows: auto minmax(0, 1fr) 190px; }
+    .session-strip { display: flex; align-items: center; gap: 0; min-height: 76px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--paper); }
+    .session-item { min-width: 160px; padding: 0 24px; border-left: 1px solid var(--line); }
+    .session-item:first-child { padding-left: 0; border-left: 0; }
+    .session-item strong { display: block; margin-top: 3px; font-size: 13px; }
+    .session-strip .run-actions { margin-left: auto; }
+    .results-workbench { min-height: 490px; display: grid; grid-template-columns: minmax(360px, 1.15fr) minmax(330px, .85fr) 270px; }
+    .results-workbench > .pane { min-width: 0; overflow: auto; border-right: 1px solid var(--line); }
+    .results-workbench > .pane:last-child { border-right: 0; }
+    .results-toolbar { display: flex; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .results-toolbar .search-wrap { flex: 1; }
+    .result-detail-large { padding: 24px; }
+    .result-detail-large h1 { margin: 0 0 4px; font-size: 22px; }
+    .result-detail-large .detail-grid { grid-template-columns: 120px 1fr; margin-top: 24px; }
+    .document-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+    .meta-chip { padding: 4px 7px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); background: var(--panel); font-size: 10px; }
+    .run-summary { padding: 20px; }
+    .summary-block { padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .summary-block:first-child { padding-top: 0; }
+    .summary-block:last-child { border: 0; }
+    .summary-block h3 { margin: 0 0 9px; font-size: 12px; }
+    .results-console { display: grid; grid-template-columns: 1fr 330px; border-top: 1px solid var(--line); }
+    .console-log { padding: 0 18px 10px; overflow: hidden; }
+    .console-log .log-list { padding-top: 8px; }
+    .console-export { padding: 16px 20px; border-left: 1px solid var(--line); }
+    .console-export p { margin: 0 0 10px; color: var(--muted); font-size: 11px; }
+
+    .prototype-switcher {
+      position: fixed;
+      z-index: 40;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px;
+      border: 1px solid #486068;
+      border-radius: 9px;
+      color: white;
+      background: #10262c;
+      box-shadow: var(--shadow);
+    }
+    .switcher-arrow { width: 34px; height: 34px; border: 0; border-radius: 5px; color: #c4d7d9; background: transparent; font-size: 18px; }
+    .switcher-arrow:hover { background: #29434a; }
+    .switcher-label { min-width: 160px; padding: 0 10px; text-align: center; font-size: 11px; }
+    .switcher-label strong { display: block; font-size: 12px; }
+    .switcher-label span { color: #9db5b9; }
+    .switcher-dots { display: flex; gap: 5px; padding: 0 8px; }
+    .switcher-dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; background: #557078; }
+    .switcher-dot.active { background: #8bd6c5; }
+
+    dialog {
+      width: min(480px, calc(100vw - 32px));
+      padding: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      color: var(--ink);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    dialog::backdrop { background: rgba(10, 27, 31, .55); backdrop-filter: blur(2px); }
+    .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; }
+    .dialog-header h2 { margin: 0; font-size: 18px; }
+    .dialog-header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+    .dialog-close { width: 28px; height: 28px; border: 0; border-radius: 4px; background: var(--panel); font-size: 17px; }
+    .dialog-body { padding: 4px 22px 20px; }
+    .dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--panel); }
+    .option-list { display: grid; gap: 8px; margin: 14px 0; }
+    .radio-option { display: flex; gap: 10px; align-items: flex-start; padding: 11px; border: 1px solid var(--line); border-radius: 5px; }
+    .radio-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+    .radio-option input { margin-top: 3px; accent-color: var(--accent); }
+    .radio-option strong { display: block; font-size: 12px; }
+    .radio-option small { color: var(--muted); }
+    .destination { display: flex; gap: 7px; margin: 7px 0 14px; }
+    .destination .text-input { flex: 1; }
+    .apdu-direction { display: inline-block; min-width: 38px; color: var(--accent-dark); font-size: 10px; font-weight: 750; }
+    .apdu-row { padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .apdu-row:last-child { border: 0; }
+    .apdu-row code { display: block; margin-top: 5px; font: 11px/1.6 "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
+    .toast { position: fixed; right: 20px; bottom: 84px; z-index: 60; max-width: 360px; padding: 12px 16px; border-radius: 6px; color: white; background: #183a35; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s; }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1120px) {
+      .inspector.active { grid-template-columns: 235px minmax(0, 1fr); }
+      .inspector-results { grid-template-columns: 1fr 290px; }
+      .workflow.active { grid-template-columns: 190px minmax(0, 1fr); }
+      .workflow-side { display: none; }
+      .results-workbench { grid-template-columns: minmax(330px, 1fr) minmax(310px, .9fr); }
+      .results-workbench > .pane:last-child { display: none; }
+      .session-item { min-width: 135px; padding: 0 15px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-header { height: auto; min-height: 66px; flex-wrap: wrap; gap: 10px; padding: 13px 16px; }
+      .brand { min-width: 0; }
+      .header-session { order: 3; width: 100%; }
+      .header-actions .button span { display: none; }
+      .variant { min-height: calc(100vh - 105px); }
+      .inspector.active, .workflow.active { grid-template-columns: 1fr; }
+      .setup-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .setup-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .setup-section { margin: 0; padding: 0; border: 0; }
+      .setup-section:last-child { grid-column: 1 / -1; }
+      .inspector-workspace { grid-template-rows: auto auto auto; }
+      .workspace-heading { flex-wrap: wrap; padding: 15px; }
+      .workspace-heading .search-wrap { width: 100%; margin: 0; }
+      .inspector-results { grid-template-columns: 1fr; }
+      .results-tree-pane { max-height: 380px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .activity-body { grid-template-columns: 1fr; }
+      .activity-summary { display: none; }
+      .workflow-rail { display: none; }
+      .workflow-hero, .workflow-log { padding: 20px 16px; }
+      .run-panel-top { align-items: flex-start; flex-direction: column; }
+      .session-strip { flex-wrap: wrap; gap: 14px; padding: 16px; }
+      .session-item { min-width: 42%; padding: 0; border: 0; }
+      .session-strip .run-actions { width: 100%; margin: 0; }
+      .results-workbench { grid-template-columns: 1fr; }
+      .results-workbench > .pane { max-height: 430px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .results-console { grid-template-columns: 1fr; }
+      .console-export { display: none; }
+      .log-list li { grid-template-columns: 62px 38px 1fr; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to mockup</a>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-name">CardPeek <span>NG</span></div>
+        <span class="prototype-tag">Desktop UI prototype</span>
+      </div>
+    </div>
+    <div class="header-session">
+      <span class="badge badge-replay">Replay session</span>
+      <span>Synthetic ATR fixture</span>
+      <span class="badge badge-local">Local only</span>
+    </div>
+    <div class="header-actions">
+      <button class="button button-dark-ghost" type="button" data-open-apdu>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h14m0 0-3-3m3 3-3 3M20 17H6m0 0 3 3m-3-3 3-3"/></svg>
+        <span>Inspect APDUs</span>
+      </button>
+      <button class="button button-dark-ghost" type="button" data-open-export>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 15v5h14v-5"/></svg>
+        <span>Export</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="variant inspector" data-variant-panel="A" aria-label="Inspector layout">
+      <aside class="pane setup-pane">
+        <div class="pane-header"><h2 class="pane-title">Session setup</h2><span class="badge badge-replay">Replay</span></div>
+        <div class="setup-body">
+          <section class="setup-section">
+            <label class="section-label" for="reader-a">Card reader</label>
+            <select class="select" id="reader-a">
+              <option>Replay: ATR sample</option>
+              <option>PC/SC: No hardware in mockup</option>
+            </select>
+            <div class="status-line small" style="margin-top:12px">
+              <span class="status-dot" data-connection-dot></span>
+              <strong data-connection-status>Connected</strong>
+              <span class="muted">T=1</span>
+            </div>
+            <div class="setup-actions">
+              <button class="button" type="button" data-connect>Disconnect</button>
+              <button class="button" type="button" data-toast="Warm reset requested in this mockup.">Reset</button>
+            </div>
+          </section>
+          <section class="setup-section">
+            <label class="section-label" for="analyzer-a">Analyzer</label>
+            <select class="select" id="analyzer-a">
+              <option>ATR analysis</option>
+              <option>EMV</option>
+              <option>Calypso</option>
+            </select>
+            <p class="field-note">ATR analyzer 1.0<br>Trusted legacy analyzer</p>
+            <button class="button button-primary button-wide" type="button" data-run>Run analyzer</button>
+            <div style="margin-top:14px">
+              <div class="progress-track"><div class="progress-bar" data-progress-bar></div></div>
+              <div class="progress-meta"><span data-run-status>Complete</span><span data-progress-label>100%</span></div>
+            </div>
+          </section>
+          <section class="setup-section">
+            <div class="notice">
+              <span aria-hidden="true">!</span>
+              <div><strong>Trusted scripts only</strong>Legacy analyzers can access local files and system facilities. They are not sandboxed.</div>
+            </div>
+            <div style="margin-top:18px">
+              <label class="section-label" for="interaction-a">Preview an interaction</label>
+              <select class="select" id="interaction-a" data-interaction-type>
+                <option value="secret">Secret input</option>
+                <option value="question">Yes or no question</option>
+                <option value="text">Text input</option>
+                <option value="file">File selection</option>
+              </select>
+              <button class="button button-quiet button-wide" style="margin-top:7px" type="button" data-open-interaction>Show dialog</button>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <div class="inspector-workspace">
+        <div class="workspace-heading">
+          <div><h1>Analysis result</h1><p>Document rev. 4 / Stable node IDs / Synthetic data</p></div>
+          <div class="search-wrap">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+            <input class="text-input search-input" type="search" placeholder="Search labels and values" aria-label="Search result tree" data-result-search>
+          </div>
+        </div>
+        <div class="inspector-results">
+          <section class="pane results-tree-pane" aria-label="Result tree">
+            <div class="pane-header"><h2 class="pane-title">Result tree</h2><span class="muted small" data-result-count>8 nodes</span></div>
+            <div class="result-tree">
+              <ul class="tree-group">
+                <li>
+                  <button class="tree-node" type="button" data-result-node data-label="Card" data-value="ISO 7816 smart card" data-node-id="node-0001" data-class="card" data-size="0 bits"><span class="tree-chevron">v</span><span class="node-icon">C</span>Card</button>
+                  <ul class="tree-group">
+                    <li><button class="tree-node selected" type="button" data-result-node data-label="Answer to Reset" data-value="3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71" data-node-id="node-0002" data-class="atr" data-size="152 bits"><span class="tree-chevron">v</span><span class="node-icon">A</span>Answer to Reset<span class="tree-value">19 bytes</span></button>
+                      <ul class="tree-group">
+                        <li><button class="tree-node" type="button" data-result-node data-label="TS - Initial character" data-value="3B - Direct convention" data-node-id="node-0003" data-class="atr.character" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>TS<span class="tree-value">3B</span></button></li>
+                        <li><button class="tree-node" type="button" data-result-node data-label="T0 - Format character" data-value="8F - 15 historical bytes" data-node-id="node-0004" data-class="atr.character" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>T0<span class="tree-value">8F</span></button></li>
+                        <li><button class="tree-node" type="button" data-result-node data-label="Historical bytes" data-value="80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71" data-node-id="node-0005" data-class="atr.history" data-size="120 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>Historical bytes<span class="tree-value">15 bytes</span></button></li>
+                      </ul>
+                    </li>
+                    <li><button class="tree-node" type="button" data-result-node data-label="Protocol" data-value="T=1" data-node-id="node-0006" data-class="card.protocol" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">P</span>Protocol<span class="tree-value">T=1</span></button></li>
+                    <li><button class="tree-node" type="button" data-result-node data-label="Reader" data-value="Replay: ATR sample" data-node-id="node-0007" data-class="reader" data-size="0 bits"><span class="tree-chevron"></span><span class="node-icon">R</span>Reader<span class="tree-value">Replay</span></button></li>
+                    <li><button class="tree-node" type="button" data-result-node data-label="Card status" data-value="9000 - Normal processing" data-node-id="node-0008" data-class="status" data-size="16 bits"><span class="tree-chevron"></span><span class="node-icon">S</span>Card status<span class="tree-value">9000</span></button></li>
+                  </ul>
+                </li>
+              </ul>
+              <div class="empty-search" data-empty-search>No matching result nodes.</div>
+            </div>
+          </section>
+          <section class="pane details-pane" aria-label="Selected node details">
+            <div class="pane-header"><h2 class="pane-title">Node details</h2><span class="muted small mono" data-detail-id>node-0002</span></div>
+            <div class="details-body">
+              <h2 data-detail-label>Answer to Reset</h2>
+              <p>Selected result node</p>
+              <dl class="detail-grid">
+                <dt>Value</dt><dd><code class="code-value" data-detail-value>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></dd>
+                <dt>Class</dt><dd class="mono" data-detail-class>atr</dd>
+                <dt>Size</dt><dd data-detail-size>152 bits</dd>
+                <dt>Node ID</dt><dd class="mono" data-detail-node>node-0002</dd>
+                <dt>MIME type</dt><dd class="mono">application/octet-stream</dd>
+              </dl>
+            </div>
+          </section>
+        </div>
+        <section class="pane activity-pane" aria-label="Analyzer activity">
+          <div class="pane-header"><h2 class="pane-title">Analyzer activity</h2><button class="button button-quiet" type="button" data-clear-log>Clear log</button></div>
+          <div class="activity-body">
+            <ul class="log-list" data-log-list>
+              <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li>
+              <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Cold reset returned 19 ATR bytes</span></li>
+              <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li>
+            </ul>
+            <div class="activity-summary">
+              <div class="metric-line"><strong>24</strong><span>APDU exchanges</span></div>
+              <div class="progress-meta"><span>Duration 1.24 s</span><span>0 warnings</span></div>
+              <button class="button" type="button" data-open-apdu>View exchanges</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="variant workflow" data-variant-panel="B" aria-label="Workflow layout">
+      <aside class="workflow-rail">
+        <h1>Card analysis</h1>
+        <p>Replay workflow / Synthetic fixture</p>
+        <ol class="steps">
+          <li class="step done"><span class="step-number">1</span><div><strong>Select reader</strong><small>Replay: ATR sample</small></div></li>
+          <li class="step done"><span class="step-number">2</span><div><strong>Connect card</strong><small>T=1 / Cold reset</small></div></li>
+          <li class="step done"><span class="step-number">3</span><div><strong>Choose analyzer</strong><small>ATR analysis 1.0</small></div></li>
+          <li class="step current"><span class="step-number">4</span><div><strong>Review result</strong><small>Document revision 4</small></div></li>
+          <li class="step"><span class="step-number">5</span><div><strong>Export</strong><small>Document or trace</small></div></li>
+        </ol>
+      </aside>
+      <div class="workflow-main pane">
+        <section class="workflow-hero">
+          <p class="eyebrow">Analysis complete</p>
+          <h2>ATR result is ready</h2>
+          <p>The replay analyzer decoded 19 bytes and published 8 result nodes. This workflow uses synthetic data and no hardware.</p>
+          <div class="run-panel">
+            <div class="run-panel-top">
+              <div><div class="status-line"><span class="status-dot" data-connection-dot></span><h3 data-run-status>Complete</h3></div><p class="field-note">24 exchanges / 1.24 seconds / 0 warnings</p></div>
+              <div class="run-actions"><button class="button" type="button" data-cancel disabled>Cancel</button><button class="button button-primary" type="button" data-run>Run again</button></div>
+            </div>
+            <div class="progress-track"><div class="progress-bar" data-progress-bar></div></div>
+            <div class="progress-meta"><span>ATR analysis</span><span data-progress-label>100%</span></div>
+          </div>
+        </section>
+        <section class="workflow-log">
+          <div style="display:flex;justify-content:space-between;align-items:center"><h2 class="pane-title">Run activity</h2><button class="button button-quiet" type="button" data-open-apdu>Inspect 24 APDUs</button></div>
+          <ul class="log-list" data-log-list>
+            <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li>
+            <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Cold reset returned 19 ATR bytes</span></li>
+            <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li>
+          </ul>
+          <div class="notice notice-safe" style="margin-top:20px"><span aria-hidden="true">i</span><div><strong>No telemetry or automatic updates</strong>Card data and trace files stay on this device unless you export them.</div></div>
+        </section>
+      </div>
+      <aside class="workflow-side pane">
+        <div class="pane-header"><h2 class="pane-title">Current configuration</h2><span class="badge badge-replay">Replay</span></div>
+        <section class="workflow-side-section">
+          <dl class="config-list">
+            <div><dt>Reader</dt><dd>Replay: ATR sample</dd></div>
+            <div><dt>Session</dt><dd><span class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span></span></dd></div>
+            <div><dt>Analyzer</dt><dd>ATR analysis 1.0</dd></div>
+            <div><dt>Script trust</dt><dd>Trusted legacy code</dd></div>
+          </dl>
+        </section>
+        <section class="workflow-side-section">
+          <h3>Result preview</h3>
+          <div class="mini-results">
+            <button class="tree-node" type="button" data-toast="ATR: 19 synthetic bytes"><span class="tree-chevron">v</span>Answer to Reset<span class="tree-value">19 bytes</span></button>
+            <button class="tree-node" type="button" data-toast="Protocol: T=1"><span class="tree-chevron"></span>Protocol<span class="tree-value">T=1</span></button>
+            <button class="tree-node" type="button" data-toast="Card status: 9000"><span class="tree-chevron"></span>Card status<span class="tree-value">9000</span></button>
+          </div>
+          <button class="button button-quiet button-wide" type="button" data-switch="C">Open full results</button>
+        </section>
+        <section class="workflow-side-section">
+          <h3>Save this run</h3>
+          <div class="export-stack"><button class="button button-primary" type="button" data-open-export>Export result</button><button class="button" type="button" data-open-export>Export trace</button></div>
+          <p class="field-note">Raw traces can contain sensitive card data. Choose an explicit destination.</p>
+        </section>
+        <section class="workflow-side-section">
+          <label class="section-label" for="interaction-b">Interaction preview</label>
+          <select class="select" id="interaction-b" data-interaction-type><option value="secret">Secret input</option><option value="question">Yes or no question</option><option value="text">Text input</option><option value="file">File selection</option></select>
+          <button class="button button-wide" style="margin-top:8px" type="button" data-open-interaction>Show dialog</button>
+        </section>
+      </aside>
+    </section>
+
+    <section class="variant results-view" data-variant-panel="C" aria-label="Results workbench layout">
+      <div class="session-strip">
+        <div class="session-item"><span class="section-label" style="margin:0">Reader</span><strong>Replay: ATR sample</strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Connection</span><strong class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span> / T=1</strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Analyzer</span><strong>ATR analysis 1.0</strong></div>
+        <div class="run-actions"><button class="button" type="button" data-cancel disabled>Cancel</button><button class="button button-primary" type="button" data-run>Run again</button></div>
+      </div>
+      <div class="results-workbench">
+        <section class="pane" aria-label="Searchable result tree">
+          <div class="pane-header"><h2 class="pane-title">Document / rev. 4</h2><span class="badge badge-replay">Synthetic</span></div>
+          <div class="results-toolbar"><div class="search-wrap"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input class="text-input search-input" type="search" placeholder="Find in result" aria-label="Find in result" data-result-search></div><button class="button" type="button" data-toast="All result branches are expanded.">Expand</button></div>
+          <div class="result-tree">
+            <ul class="tree-group">
+              <li><button class="tree-node" type="button" data-result-node data-label="Card" data-value="ISO 7816 smart card" data-node-id="node-0001" data-class="card" data-size="0 bits"><span class="tree-chevron">v</span><span class="node-icon">C</span>Card</button>
+                <ul class="tree-group">
+                  <li><button class="tree-node selected" type="button" data-result-node data-label="Answer to Reset" data-value="3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71" data-node-id="node-0002" data-class="atr" data-size="152 bits"><span class="tree-chevron">v</span><span class="node-icon">A</span>Answer to Reset<span class="tree-value">19 bytes</span></button>
+                    <ul class="tree-group">
+                      <li><button class="tree-node" type="button" data-result-node data-label="TS - Initial character" data-value="3B - Direct convention" data-node-id="node-0003" data-class="atr.character" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>TS<span class="tree-value">3B</span></button></li>
+                      <li><button class="tree-node" type="button" data-result-node data-label="T0 - Format character" data-value="8F - 15 historical bytes" data-node-id="node-0004" data-class="atr.character" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>T0<span class="tree-value">8F</span></button></li>
+                      <li><button class="tree-node" type="button" data-result-node data-label="Historical bytes" data-value="80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71" data-node-id="node-0005" data-class="atr.history" data-size="120 bits"><span class="tree-chevron"></span><span class="node-icon">#</span>Historical bytes<span class="tree-value">15 bytes</span></button></li>
+                    </ul>
+                  </li>
+                  <li><button class="tree-node" type="button" data-result-node data-label="Protocol" data-value="T=1" data-node-id="node-0006" data-class="card.protocol" data-size="8 bits"><span class="tree-chevron"></span><span class="node-icon">P</span>Protocol<span class="tree-value">T=1</span></button></li>
+                  <li><button class="tree-node" type="button" data-result-node data-label="Reader" data-value="Replay: ATR sample" data-node-id="node-0007" data-class="reader" data-size="0 bits"><span class="tree-chevron"></span><span class="node-icon">R</span>Reader<span class="tree-value">Replay</span></button></li>
+                  <li><button class="tree-node" type="button" data-result-node data-label="Card status" data-value="9000 - Normal processing" data-node-id="node-0008" data-class="status" data-size="16 bits"><span class="tree-chevron"></span><span class="node-icon">S</span>Card status<span class="tree-value">9000</span></button></li>
+                </ul>
+              </li>
+            </ul>
+            <div class="empty-search" data-empty-search>No matching result nodes.</div>
+          </div>
+        </section>
+        <section class="pane" aria-label="Large node details">
+          <div class="result-detail-large">
+            <p class="eyebrow">Selected node</p>
+            <h1 data-detail-label>Answer to Reset</h1>
+            <span class="muted small mono" data-detail-id>node-0002</span>
+            <div class="document-meta"><span class="meta-chip">Document doc-atr-01</span><span class="meta-chip">Revision 4</span><span class="meta-chip">Run run-003</span></div>
+            <dl class="detail-grid">
+              <dt>Decoded value</dt><dd><code class="code-value" data-detail-value>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></dd>
+              <dt>Class</dt><dd class="mono" data-detail-class>atr</dd>
+              <dt>Exact size</dt><dd data-detail-size>152 bits</dd>
+              <dt>Node ID</dt><dd class="mono" data-detail-node>node-0002</dd>
+              <dt>MIME type</dt><dd class="mono">application/octet-stream</dd>
+              <dt>Source</dt><dd>Cold reset record 001</dd>
+            </dl>
+            <div class="notice notice-safe" style="margin-top:24px"><span aria-hidden="true">i</span><div><strong>Native byte string</strong>The value retains its exact bit width. Legacy prefixes appear only during XML or Lua conversion.</div></div>
+          </div>
+        </section>
+        <aside class="pane run-summary">
+          <div class="summary-block"><h3>Run status</h3><div class="status-line"><span class="status-dot" data-connection-dot></span><strong data-run-status>Complete</strong></div><div class="progress-track" style="margin-top:14px"><div class="progress-bar" data-progress-bar></div></div><div class="progress-meta"><span>1.24 s</span><span data-progress-label>100%</span></div></div>
+          <div class="summary-block"><h3>Run summary</h3><div class="metric-line"><strong>8</strong><span>result nodes</span></div><div class="metric-line" style="margin-top:16px"><strong>24</strong><span>APDU exchanges</span></div><div class="metric-line" style="margin-top:16px"><strong>0</strong><span>warnings</span></div></div>
+          <div class="summary-block"><button class="button button-wide" type="button" data-open-apdu>Inspect APDUs</button><button class="button button-quiet button-wide" type="button" data-clear-log>Clear activity log</button></div>
+        </aside>
+      </div>
+      <div class="results-console pane">
+        <section class="console-log"><div class="pane-header" style="padding-left:0;padding-right:0"><h2 class="pane-title">Activity log</h2><span class="muted small">Bounded event stream</span></div><ul class="log-list" data-log-list><li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li><li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li></ul></section>
+        <aside class="console-export"><h2 class="pane-title">Export</h2><p>Choose a document format or a trace mode. Raw captures remain sensitive.</p><button class="button button-primary button-wide" type="button" data-open-export>Choose export</button></aside>
+      </div>
+    </section>
+  </main>
+
+  <nav class="prototype-switcher" aria-label="Prototype layout switcher" tabindex="0" title="Use left and right arrow keys to change layout">
+    <button class="switcher-arrow" type="button" data-previous aria-label="Previous layout"><</button>
+    <div class="switcher-label"><strong data-variant-name>A - Inspector</strong><span>Layout prototype</span></div>
+    <div class="switcher-dots"><button class="switcher-dot active" type="button" data-switch="A" aria-label="Inspector layout"></button><button class="switcher-dot" type="button" data-switch="B" aria-label="Workflow layout"></button><button class="switcher-dot" type="button" data-switch="C" aria-label="Results layout"></button></div>
+    <button class="switcher-arrow" type="button" data-next aria-label="Next layout">></button>
+  </nav>
+
+  <dialog id="interaction-dialog" aria-labelledby="interaction-title">
+    <div class="dialog-header"><div><h2 id="interaction-title">Analyzer request</h2><p>Interaction request req-0042 / Run run-003</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
+    <div class="dialog-body" id="interaction-body"></div>
+    <div class="dialog-footer" id="interaction-footer"></div>
+  </dialog>
+
+  <dialog id="export-dialog" aria-labelledby="export-title">
+    <form method="dialog" id="export-form">
+      <div class="dialog-header"><div><h2 id="export-title">Export analysis</h2><p>Choose an explicit local destination.</p></div><button class="dialog-close" value="cancel" aria-label="Close">x</button></div>
+      <div class="dialog-body">
+        <span class="section-label">Content and format</span>
+        <div class="option-list">
+          <label class="radio-option"><input type="radio" name="export-type" value="json" checked><span><strong>Result document - JSON</strong><small>Versioned native schema with stable node IDs.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="xml"><span><strong>Result document - Legacy XML</strong><small>CardPeek-compatible document structure.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="sanitized"><span><strong>Trace - Sanitized export</strong><small>Redacted for sharing. Redaction cannot remove every secret.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="raw"><span><strong>Trace - Raw capture</strong><small>Faithful replay with sensitive APDU data.</small></span></label>
+        </div>
+        <div class="notice notice-danger" id="raw-warning" hidden><span aria-hidden="true">!</span><div><strong>Sensitive file</strong>Store this raw trace securely. Do not share live card secrets.</div></div>
+        <label class="section-label" for="export-destination">Destination</label>
+        <div class="destination"><input class="text-input" id="export-destination" value="Documents/atr-result.json" required><button class="button" type="button" data-toast="A native save dialog would open here.">Browse</button></div>
+      </div>
+      <div class="dialog-footer"><button class="button" value="cancel">Cancel</button><button class="button button-primary" type="submit" value="default">Export</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="apdu-dialog" aria-labelledby="apdu-title">
+    <div class="dialog-header"><div><h2 id="apdu-title">APDU exchanges</h2><p>24 exchanges / Replay transport / Synthetic records</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
+    <div class="dialog-body">
+      <div class="apdu-row"><span class="apdu-direction">TX</span><span class="muted small">Record 001 / Cold reset</span><code>RESET</code></div>
+      <div class="apdu-row"><span class="apdu-direction">RX</span><span class="muted small">ATR / 19 bytes</span><code>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></div>
+      <div class="apdu-row"><span class="apdu-direction">TX</span><span class="muted small">Record 002 / SELECT</span><code>00 A4 04 00 07 A0 00 00 00 03 10 10 00</code></div>
+      <div class="apdu-row"><span class="apdu-direction">RX</span><span class="muted small">Normal processing</span><code>6F 00 90 00</code></div>
+      <div class="notice" style="margin-top:16px"><span aria-hidden="true">!</span><div><strong>Mock data only</strong>Native transport errors remain separate from card status words. Legacy 6C and 61 retries occur only at the compatibility boundary.</div></div>
+    </div>
+    <div class="dialog-footer"><button class="button" type="button" data-close-dialog>Close</button><button class="button button-primary" type="button" data-open-export>Export trace</button></div>
+  </dialog>
+
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+
+  <script>
+    (() => {
+      const variants = [
+        { key: "A", name: "A - Inspector" },
+        { key: "B", name: "B - Workflow" },
+        { key: "C", name: "C - Results workbench" }
+      ];
+      let currentVariant = 0;
+      let runTimer = null;
+      let toastTimer = null;
+
+      const toast = message => {
+        const element = document.getElementById("toast");
+        element.textContent = message;
+        element.classList.add("visible");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => element.classList.remove("visible"), 2800);
+      };
+
+      const switchVariant = index => {
+        currentVariant = (index + variants.length) % variants.length;
+        const variant = variants[currentVariant];
+        document.querySelectorAll("[data-variant-panel]").forEach(panel => {
+          panel.classList.toggle("active", panel.dataset.variantPanel === variant.key);
+        });
+        document.querySelectorAll("[data-switch]").forEach(button => {
+          if (button.classList.contains("switcher-dot")) button.classList.toggle("active", button.dataset.switch === variant.key);
+        });
+        document.querySelector("[data-variant-name]").textContent = variant.name;
+        const url = new URL(window.location.href);
+        url.searchParams.set("variant", variant.key);
+        history.replaceState(null, "", url);
+        document.title = "CardPeek NG - " + variant.name;
+      };
+
+      const interactionContent = {
+        secret: {
+          title: "Card verification required",
+          body: '<p>The analyzer requests the card PIN. PIN values never enter application logs.</p><label class="section-label" for="secret-value">PIN</label><input class="text-input" id="secret-value" type="password" autocomplete="off" placeholder="Enter PIN"><p class="field-note">Secret input is masked. This prototype does not store the value.</p>',
+          actions: '<button class="button" type="button" data-close-dialog>Cancel run</button><button class="button button-primary" type="button" data-interaction-submit="Secret response sent without logging its value.">Submit PIN</button>'
+        },
+        question: {
+          title: "Continue analysis?",
+          body: '<p>The selected application contains records that the analyzer has not read. Do you want to read them now?</p><div class="notice"><span aria-hidden="true">?</span><div><strong>Analyzer question</strong>The worker waits for this correlated response or cancellation.</div></div>',
+          actions: '<button class="button" type="button" data-interaction-submit="No answer sent.">No</button><button class="button button-primary" type="button" data-interaction-submit="Yes answer sent.">Yes</button>'
+        },
+        text: {
+          title: "Cardholder name",
+          body: '<p>Enter a label for this synthetic analysis result.</p><label class="section-label" for="text-value">Display label</label><input class="text-input" id="text-value" type="text" value="Sample card">',
+          actions: '<button class="button" type="button" data-close-dialog>Cancel</button><button class="button button-primary" type="button" data-interaction-submit="Text response sent.">Submit</button>'
+        },
+        file: {
+          title: "Select analyzer resource",
+          body: '<p>Select a trusted local resource for the analyzer.</p><label class="section-label" for="file-value">Resource file</label><input class="text-input" id="file-value" type="file"><p class="field-note">The selected path is returned through the interaction broker.</p>',
+          actions: '<button class="button" type="button" data-close-dialog>Cancel</button><button class="button button-primary" type="button" data-interaction-submit="File selection confirmed.">Use selected file</button>'
+        }
+      };
+
+      document.querySelectorAll("[data-switch]").forEach(button => button.addEventListener("click", () => {
+        switchVariant(variants.findIndex(item => item.key === button.dataset.switch));
+      }));
+      document.querySelector("[data-previous]").addEventListener("click", () => switchVariant(currentVariant - 1));
+      document.querySelector("[data-next]").addEventListener("click", () => switchVariant(currentVariant + 1));
+      document.addEventListener("keydown", event => {
+        if (event.target.matches("input, textarea, select, [contenteditable]") || document.querySelector("dialog[open]")) return;
+        if (event.key === "ArrowLeft") switchVariant(currentVariant - 1);
+        if (event.key === "ArrowRight") switchVariant(currentVariant + 1);
+      });
+
+      document.querySelectorAll("[data-toast]").forEach(button => button.addEventListener("click", () => toast(button.dataset.toast)));
+      document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => button.closest("dialog").close()));
+      document.querySelectorAll("dialog").forEach(dialog => dialog.addEventListener("click", event => {
+        if (event.target === dialog) dialog.close();
+      }));
+
+      document.querySelectorAll("[data-open-interaction]").forEach(button => button.addEventListener("click", () => {
+        const panel = button.closest("[data-variant-panel]");
+        const type = panel.querySelector("[data-interaction-type]").value;
+        const content = interactionContent[type];
+        document.getElementById("interaction-title").textContent = content.title;
+        document.getElementById("interaction-body").innerHTML = content.body;
+        const footer = document.getElementById("interaction-footer");
+        footer.innerHTML = content.actions;
+        footer.querySelectorAll("[data-close-dialog]").forEach(item => item.addEventListener("click", () => document.getElementById("interaction-dialog").close()));
+        footer.querySelectorAll("[data-interaction-submit]").forEach(item => item.addEventListener("click", () => {
+          document.getElementById("interaction-dialog").close();
+          toast(item.dataset.interactionSubmit);
+        }));
+        document.getElementById("interaction-dialog").showModal();
+      }));
+
+      const openExport = () => {
+        const apduDialog = document.getElementById("apdu-dialog");
+        if (apduDialog.open) apduDialog.close();
+        document.getElementById("export-dialog").showModal();
+      };
+      document.querySelectorAll("[data-open-export]").forEach(button => button.addEventListener("click", openExport));
+      document.querySelectorAll("[data-open-apdu]").forEach(button => button.addEventListener("click", () => document.getElementById("apdu-dialog").showModal()));
+      document.querySelectorAll('input[name="export-type"]').forEach(input => input.addEventListener("change", () => {
+        document.getElementById("raw-warning").hidden = input.value !== "raw" || !input.checked;
+        const extension = input.value === "xml" ? "xml" : input.value === "json" ? "json" : "trace";
+        const base = input.value === "json" || input.value === "xml" ? "atr-result" : "atr-capture";
+        document.getElementById("export-destination").value = "Documents/" + base + "." + extension;
+      }));
+      document.getElementById("export-form").addEventListener("submit", event => {
+        if (!document.getElementById("export-destination").value.trim()) {
+          event.preventDefault();
+          toast("Choose an export destination.");
+          return;
+        }
+        toast("Prototype only. No file was written.");
+      });
+
+      document.querySelectorAll("[data-result-node]").forEach(button => button.addEventListener("click", () => {
+        const panel = button.closest("[data-variant-panel]");
+        panel.querySelectorAll("[data-result-node]").forEach(node => node.classList.remove("selected"));
+        button.classList.add("selected");
+        panel.querySelectorAll("[data-detail-label]").forEach(node => node.textContent = button.dataset.label);
+        panel.querySelectorAll("[data-detail-value]").forEach(node => node.textContent = button.dataset.value);
+        panel.querySelectorAll("[data-detail-class]").forEach(node => node.textContent = button.dataset.class);
+        panel.querySelectorAll("[data-detail-size]").forEach(node => node.textContent = button.dataset.size);
+        panel.querySelectorAll("[data-detail-node], [data-detail-id]").forEach(node => node.textContent = button.dataset.nodeId);
+      }));
+
+      document.querySelectorAll("[data-result-search]").forEach(input => input.addEventListener("input", () => {
+        const panel = input.closest("[data-variant-panel]");
+        const query = input.value.trim().toLowerCase();
+        const nodes = [...panel.querySelectorAll("[data-result-node]")];
+        const matches = new Set();
+        nodes.forEach(node => {
+          const match = !query || (node.dataset.label + " " + node.dataset.value + " " + node.dataset.class).toLowerCase().includes(query);
+          if (!match) return;
+          matches.add(node);
+          let ancestor = node.parentElement.parentElement.closest("li");
+          while (ancestor && panel.contains(ancestor)) {
+            const parent = ancestor.querySelector(":scope > [data-result-node]");
+            if (!parent) break;
+            matches.add(parent);
+            ancestor = ancestor.parentElement.closest("li");
+          }
+        });
+        nodes.forEach(node => {
+          const directMatch = !query || (node.dataset.label + " " + node.dataset.value + " " + node.dataset.class).toLowerCase().includes(query);
+          node.hidden = !matches.has(node);
+          node.classList.toggle("search-ancestor", !directMatch);
+        });
+        const visible = query ? nodes.filter(node => matches.has(node) && !node.classList.contains("search-ancestor")).length : nodes.length;
+        panel.querySelector("[data-empty-search]").style.display = visible ? "none" : "block";
+        const count = panel.querySelector("[data-result-count]");
+        if (count) count.textContent = query ? visible + " matches" : "8 nodes";
+      }));
+
+      const updateProgress = value => {
+        document.querySelectorAll("[data-progress-bar]").forEach(bar => bar.style.width = value + "%");
+        document.querySelectorAll("[data-progress-label]").forEach(label => label.textContent = value + "%");
+      };
+      const updateRunState = (state, running) => {
+        document.querySelectorAll("[data-run-status]").forEach(label => label.textContent = state);
+        document.querySelectorAll("[data-run]").forEach(button => button.disabled = running);
+        document.querySelectorAll("[data-cancel]").forEach(button => button.disabled = !running);
+      };
+      const appendLog = message => {
+        const item = document.createElement("li");
+        item.innerHTML = '<span class="log-time">now</span><span class="log-level">INFO</span><span></span>';
+        item.lastElementChild.textContent = message;
+        document.querySelectorAll("[data-log-list]").forEach(list => list.appendChild(item.cloneNode(true)));
+      };
+      const stopRun = () => {
+        clearInterval(runTimer);
+        runTimer = null;
+      };
+      document.querySelectorAll("[data-run]").forEach(button => button.addEventListener("click", () => {
+        stopRun();
+        let progress = 0;
+        updateProgress(progress);
+        updateRunState("Running", true);
+        appendLog("Analyzer run started with a fresh result document");
+        runTimer = setInterval(() => {
+          progress += 10;
+          updateProgress(progress);
+          if (progress >= 100) {
+            stopRun();
+            updateRunState("Complete", false);
+            appendLog("Analyzer completed; document revision 5 published");
+          }
+        }, 140);
+      }));
+      document.querySelectorAll("[data-cancel]").forEach(button => button.addEventListener("click", () => {
+        stopRun();
+        updateRunState("Cancelled", false);
+        appendLog("Cancellation acknowledged; worker cleaned up");
+      }));
+      document.querySelectorAll("[data-clear-log]").forEach(button => button.addEventListener("click", () => {
+        document.querySelectorAll("[data-log-list]").forEach(list => list.innerHTML = '<li><span class="log-time">now</span><span class="log-level">INFO</span><span>Activity log cleared</span></li>');
+      }));
+      document.querySelectorAll("[data-connect]").forEach(button => button.addEventListener("click", () => {
+        const connected = button.textContent === "Disconnect";
+        button.textContent = connected ? "Connect" : "Disconnect";
+        document.querySelectorAll("[data-connection-status]").forEach(label => label.textContent = connected ? "Disconnected" : "Connected");
+        document.querySelectorAll("[data-connection-dot]").forEach(dot => dot.classList.toggle("offline", connected));
+        appendLog(connected ? "Replay session disconnected" : "Replay session connected");
+      }));
+
+      const requested = new URLSearchParams(window.location.search).get("variant");
+      const requestedIndex = variants.findIndex(item => item.key === requested);
+      switchVariant(requestedIndex >= 0 ? requestedIndex : 0);
+    })();
+  </script>
+</body>
+</html>
