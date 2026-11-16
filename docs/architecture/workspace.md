@@ -99,7 +99,7 @@ Discovery parses supported metadata headers without executing Lua.
 ## cardpeek-lua
 
 This crate embeds vendored Lua 5.4 through mlua.
-It implements the CardPeek-NG Lua API.
+It implements the CardPeek-ng Lua API.
 It does not provide CardPeek globals, Lua 5.2 emulation, or compatibility shims.
 
 Each analyser run receives:

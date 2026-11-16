@@ -2,14 +2,14 @@
 
 ## Product scope
 
-CardPeek-NG will provide:
+CardPeek-ng will provide:
 
 - A reusable Rust engine.
 - A command-line application.
 - A Dioxus desktop application.
 - PC/SC reader access.
 - APDU transmission and inspection.
-- A Lua API for CardPeek-NG analysers.
+- A Lua API for CardPeek-ng analysers.
 - A UI-independent result document with versioned JSON serialisation.
 - Native JSON trace recording and replay.
 
@@ -32,7 +32,7 @@ The first release will not provide:
 - Give every analyser run a fresh Lua state and result document.
 - Treat Lua scripts as trusted code.
 - Use versioned native JSON schemas for documents and traces.
-- Use GPL-3.0-or-later for CardPeek-NG and its bundled analysers.
+- Use GPL-3.0-or-later for CardPeek-ng and its bundled analysers.
 - Preserve all required third-party notices and attribution.
 - Exclude automatic updates and telemetry from the first release.
 

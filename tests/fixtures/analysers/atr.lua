@@ -1,4 +1,4 @@
--- CardPeek-NG ATR analyser.
+-- CardPeek-ng ATR analyser.
 -- @id atr
 -- @title ATR
 -- @description Inspect the current Answer to Reset

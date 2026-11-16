@@ -1,15 +1,42 @@
-# CardPeek-NG
+# CardPeek-ng
 
-CardPeek-NG is a tool for reading and analysing smart cards, inspired by [CardPeek](https://github.com/l1l1/cardpeek).
+CardPeek-ng is a tool for reading and analysing smart cards, inspired by [CardPeek](https://github.com/l1l1/cardpeek).
 It will provide a reusable engine, a command-line application, and a desktop application.
-It will support PC/SC readers, Lua analysers, and replay of CardPeek-NG JSON traces.
+It will support PC/SC readers, Lua analysers, and replay of CardPeek-ng JSON traces.
 It will not provide compatibility with CardPeek Lua analysers, XML documents, or trace captures.
 
 The application core is written in Rust, and the UI uses Dioxus.
 The workspace includes core domain types, versioned JSON documents and traces, trace replay, and native PC/SC transport.
 The application engine provides bounded command and event channels, dedicated session workers, interaction correlation, deterministic cancellation, and native JSON exports.
 The CLI runs Lua analysers through replay.
-The desktop application remains in development.
+The desktop application provides the same replay workflow in a Dioxus inspector.
+
+## Desktop replay
+
+Run the ATR analyser against the bundled synthetic trace:
+
+```sh
+cargo run -p cardpeek-desktop
+```
+
+The application discovers readers and analysers on startup.
+Select Connect, then Run analyser.
+The inspector shows progress, logs, APDU exchanges, and a searchable result tree.
+The export dialog writes native JSON documents to an explicit destination.
+Disconnect before exporting the raw session trace.
+Native file dialogs run outside the Dioxus UI executor.
+The desktop UI uses Dioxus Blitz with WGPU and Winit.
+It does not use an OS WebView.
+
+Optional arguments select a different trace and analyser directory:
+
+```sh
+cargo run -p cardpeek-desktop -- \
+  tests/fixtures/traces/atr-synthetic-001.json \
+  tests/fixtures/analysers
+```
+
+On Debian or Ubuntu, desktop builds also require GTK 3 development files for native file dialogs.
 
 ## CLI replay
 
@@ -53,7 +80,7 @@ They are not sandboxed.
 
 Install Rust 1.100 or a compatible newer toolchain.
 Install the PC/SC development files required by the `pcsc` crate.
-On Debian or Ubuntu, install `libpcsclite-dev` and `pkg-config`.
+On Debian or Ubuntu, install `libpcsclite-dev`, `pkg-config`, and `libgtk-3-dev`.
 Run the local checks from the workspace root:
 
 ```sh
@@ -74,7 +101,7 @@ Lua analysers are trusted code.
 They are not sandboxed.
 Card data, APDU logs, and raw traces are sensitive by default.
 
-CardPeek-NG is licensed under GPL-3.0-or-later.
+CardPeek-ng is licensed under GPL-3.0-or-later.
 See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).
 Fixture rules are in [`tests/fixtures/README.md`](tests/fixtures/README.md).
 

@@ -3,7 +3,7 @@
 ## Runtime and startup
 
 The runtime loads each analyser with `require("cardpeek")`.
-The module exposes the CardPeek-NG API through one namespace.
+The module exposes the CardPeek-ng API through one namespace.
 It does not install CardPeek globals or emulate CardPeek Lua behaviour.
 
 Analyser discovery does not execute the analyser.

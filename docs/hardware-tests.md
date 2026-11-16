@@ -57,7 +57,7 @@ Reconnect and confirm that the session recovers through a new connection.
 
 Hold an incompatible exclusive connection with another PC/SC client.
 Confirm that a new connection returns a typed `SharingViolation` error.
-Disconnect CardPeek-NG and confirm that the other client can connect.
+Disconnect CardPeek-ng and confirm that the other client can connect.
 
 Repeat discovery with no card, with an inserted card, and after reader removal.
 Confirm that discovery reports the current card-presence state.

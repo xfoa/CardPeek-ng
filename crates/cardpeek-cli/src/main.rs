@@ -20,7 +20,7 @@ use thiserror::Error;
 #[command(
     name = "cardpeek",
     version,
-    about = "Inspect smart cards with CardPeek-NG analysers"
+    about = "Inspect smart cards with CardPeek-ng analysers"
 )]
 struct Arguments {
     #[command(subcommand)]

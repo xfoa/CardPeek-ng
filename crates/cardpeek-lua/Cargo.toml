@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-lua"
-description = "Lua analyser runtime for CardPeek-NG"
+description = "Lua analyser runtime for CardPeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

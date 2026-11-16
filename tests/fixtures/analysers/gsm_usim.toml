@@ -1,9 +1,9 @@
 schema_version = 1
 fixture_id = "gsm-usim-001"
-description = "Read-only CardPeek-NG GSM SIM and USIM filesystem analyser"
+description = "Read-only CardPeek-ng GSM SIM and USIM filesystem analyser"
 origin = "derived"
-created_by = "CardPeek-NG contributors"
-source_project = "CardPeek-NG temporary development tree"
+created_by = "CardPeek-ng contributors"
+source_project = "CardPeek-ng temporary development tree"
 source_url = ""
 source_revision = ""
 source_version = "1.0.0"
