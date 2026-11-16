@@ -3,16 +3,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
-use cardpeek_core::{
-    ApduCommand, ApduResponse, Atr, ReaderInfo, ResetMode, ResultDocument, TraceDocument,
+use cardpeek_analyser::{
+    AnalyserMetadata, Cancellation, CardHost, EventSink, ExecutionRequest, HostError,
 };
-use cardpeek_transport::CardSession;
+use cardpeek_core::{
+    ApduCommand, ApduResponse, Atr, ReaderInfo, ResetMode, ResultDocument, RunId, TraceDocument,
+    TraceRecordId,
+};
+use cardpeek_transport::{CardSession, SessionCapabilities};
 
 use crate::state::SharedState;
 use crate::sync::{CancellationToken, CommandQueue, EventQueue, lock_unpoisoned};
 use crate::{
-    AppError, CommandKind, ConnectRequest, Event, EventKind, OperationId, OperationStatus, Result,
-    SessionState, emit_to, transport_error,
+    AnalyserContext, AppError, CommandKind, ConnectRequest, Event, EventKind, LogLevel,
+    OperationId, OperationStatus, Result, SessionState, emit_to, is_cancellation, transport_error,
 };
 
 /// Factory for reader discovery and owned card sessions.
@@ -45,8 +49,16 @@ pub trait SessionBackend: Send + Sync + 'static {
     }
 }
 
-/// Blocking operations issued by an analyzer worker.
-pub trait AnalyzerHost {
+/// Blocking operations issued by an analyser worker.
+pub trait AnalyserHost {
+    /// Returns the cancellation token for this operation.
+    fn token(&self) -> &CancellationToken;
+
+    /// Returns the source record for the current ATR when known.
+    fn current_atr_record(&self) -> Option<cardpeek_core::TraceRecordId> {
+        None
+    }
+
     /// Returns the current Answer to Reset.
     ///
     /// # Errors
@@ -82,6 +94,30 @@ pub(crate) struct SessionRuntime<B: SessionBackend> {
     pub(crate) subscribers: Arc<std::sync::Mutex<Vec<Arc<EventQueue>>>>,
     pub(crate) session_traces: Arc<std::sync::Mutex<HashMap<OperationId, Arc<TraceDocument>>>>,
     pub(crate) sequence: Arc<std::sync::Mutex<u64>>,
+    pub(crate) analysers: Arc<std::sync::Mutex<HashMap<String, AnalyserMetadata>>>,
+    pub(crate) documents: Arc<std::sync::Mutex<HashMap<RunId, Arc<ResultDocument>>>>,
+    pub(crate) interactions:
+        Arc<std::sync::Mutex<HashMap<crate::InteractionId, Arc<crate::InteractionSlot>>>>,
+    pub(crate) interaction_timeout: std::time::Duration,
+}
+
+impl<B: SessionBackend> SessionRuntime<B> {
+    fn analyser_context(
+        &self,
+        operation: &OperationId,
+        run_id: RunId,
+        token: &CancellationToken,
+    ) -> AnalyserContext {
+        AnalyserContext::new(
+            operation.clone(),
+            run_id,
+            token.clone(),
+            self.subscribers.clone(),
+            self.sequence.clone(),
+            self.interactions.clone(),
+            self.interaction_timeout,
+        )
+    }
 }
 
 impl<B: SessionBackend> SessionRuntime<B> {
@@ -195,7 +231,50 @@ impl<B: SessionBackend> SessionRuntime<B> {
                 CommandKind::Transmit(bytes) => ApduCommand::parse(bytes)
                     .map_err(AppError::Core)
                     .and_then(|_| host.transmit(bytes).map(|_| ())),
-                CommandKind::RunAnalyzer(_) => Err(AppError::AnalyzerRuntimeUnavailable),
+                CommandKind::RunAnalyser(request) => {
+                    let run_id = request.run_id.clone();
+                    (|| {
+                        let Some(metadata) = lock_unpoisoned(&self.analysers)
+                            .get(&request.analyser)
+                            .cloned()
+                        else {
+                            return Err(AppError::AnalyserNotFound(request.analyser.clone()));
+                        };
+                        let execution = ExecutionRequest {
+                            analyser: metadata,
+                            run_id: run_id.clone(),
+                            document_id: request.document_id.clone(),
+                        };
+                        let context = self.analyser_context(
+                            &command.operation,
+                            run_id.clone(),
+                            &command.token,
+                        );
+                        let events = WorkerEvents { context };
+                        let session_info =
+                            self.shared.session().ok_or(AppError::NoActiveSession)?;
+                        let current_record = host.current_atr_record();
+                        let mut runtime_host = RuntimeCardHost {
+                            host: &mut host,
+                            protocol: session_info.protocol,
+                            capabilities: session_info.capabilities,
+                            current_record,
+                        };
+                        let document =
+                            cardpeek_lua::execute(&execution, &mut runtime_host, &events)
+                                .map_err(|error| AppError::Analyser(error.to_string()))?;
+                        lock_unpoisoned(&self.documents)
+                            .insert(run_id.clone(), Arc::new(document.clone()));
+                        self.emit(Event::new(
+                            command.operation.clone(),
+                            EventKind::DocumentPublished {
+                                run_id: run_id.clone(),
+                                revision: document.revision,
+                            },
+                        ));
+                        Ok(())
+                    })()
+                }
                 _ => Err(AppError::OperationInProgress),
             };
             match result {
@@ -304,6 +383,79 @@ impl<B: SessionBackend> SessionRuntime<B> {
     }
 }
 
+impl Cancellation for CancellationToken {
+    fn is_cancelled(&self) -> bool {
+        CancellationToken::is_cancelled(self)
+    }
+}
+
+struct RuntimeCardHost<'a, H: AnalyserHost> {
+    host: &'a mut H,
+    protocol: cardpeek_core::Protocol,
+    capabilities: SessionCapabilities,
+    current_record: Option<TraceRecordId>,
+}
+
+impl<H: AnalyserHost> CardHost for RuntimeCardHost<'_, H> {
+    type Cancellation = CancellationToken;
+
+    fn protocol(&self) -> cardpeek_core::Protocol {
+        self.protocol
+    }
+
+    fn capabilities(&self) -> SessionCapabilities {
+        self.capabilities
+    }
+
+    fn atr(&mut self) -> std::result::Result<Atr, HostError> {
+        self.host.atr().map_err(|error| host_error(&error))
+    }
+
+    fn reset(&mut self, mode: ResetMode) -> std::result::Result<Atr, HostError> {
+        let atr = self.host.reset(mode).map_err(|error| host_error(&error))?;
+        self.current_record = self.host.current_atr_record();
+        Ok(atr)
+    }
+
+    fn transmit(&mut self, command: &[u8]) -> std::result::Result<ApduResponse, HostError> {
+        self.host
+            .transmit(command)
+            .map_err(|error| host_error(&error))
+    }
+
+    fn cancellation(&self) -> &Self::Cancellation {
+        self.host.token()
+    }
+
+    fn current_atr_record(&self) -> Option<TraceRecordId> {
+        self.current_record.clone()
+    }
+}
+
+fn host_error(error: &AppError) -> HostError {
+    if is_cancellation(error) {
+        HostError::cancelled()
+    } else {
+        HostError::new(error.to_string())
+    }
+}
+
+struct WorkerEvents {
+    context: AnalyserContext,
+}
+
+impl EventSink for WorkerEvents {
+    fn log(&self, level: cardpeek_analyser::LogLevel, message: &str) {
+        let level = match level {
+            cardpeek_analyser::LogLevel::Debug => LogLevel::Debug,
+            cardpeek_analyser::LogLevel::Info => LogLevel::Info,
+            cardpeek_analyser::LogLevel::Warning => LogLevel::Warning,
+            cardpeek_analyser::LogLevel::Error => LogLevel::Error,
+        };
+        self.context.log(level, message);
+    }
+}
+
 struct SessionHost<'a, S: CardSession, B: SessionBackend> {
     session_id: OperationId,
     session: &'a mut S,
@@ -313,7 +465,22 @@ struct SessionHost<'a, S: CardSession, B: SessionBackend> {
     runtime: &'a SessionRuntime<B>,
 }
 
-impl<S: CardSession, B: SessionBackend> AnalyzerHost for SessionHost<'_, S, B> {
+impl<S: CardSession, B: SessionBackend> AnalyserHost for SessionHost<'_, S, B> {
+    fn token(&self) -> &CancellationToken {
+        self.token
+    }
+
+    fn current_atr_record(&self) -> Option<TraceRecordId> {
+        self.trace
+            .records
+            .iter()
+            .rev()
+            .find_map(|record| match record {
+                cardpeek_core::TraceRecord::Reset { id, .. } => Some(id.clone()),
+                cardpeek_core::TraceRecord::Command { .. } => None,
+            })
+    }
+
     fn atr(&self) -> Result<Atr> {
         self.token.check()?;
         self.session.atr().map_err(transport_error)
@@ -350,7 +517,9 @@ impl<S: CardSession, B: SessionBackend> AnalyzerHost for SessionHost<'_, S, B> {
 }
 
 pub(crate) fn export_document(document: &ResultDocument, path: PathBuf) -> Result<()> {
-    std::fs::write(path, document.to_json()?).map_err(AppError::Io)
+    let mut json = document.to_json()?;
+    json.push('\n');
+    std::fs::write(path, json).map_err(AppError::Io)
 }
 
 pub(crate) fn export_trace(trace: &TraceDocument, path: PathBuf) -> Result<()> {

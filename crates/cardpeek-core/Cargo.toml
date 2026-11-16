@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-core"
-description = "UI-independent domain types for CardPeek NG"
+description = "UI-independent domain types for CardPeek-NG"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

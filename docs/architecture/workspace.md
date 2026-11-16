@@ -9,7 +9,7 @@ crates/
   cardpeek-transport/
   cardpeek-pcsc/
   cardpeek-replay/
-  cardpeek-analyzer/
+  cardpeek-analyser/
   cardpeek-lua/
   cardpeek-app/
   cardpeek-cli/
@@ -18,7 +18,7 @@ tests/
   fixtures/
     traces/
     documents/
-    analyzers/
+    analysers/
 ```
 
 The workspace manifest owns shared dependency versions and lint settings.
@@ -33,7 +33,7 @@ This crate defines:
 - ATR values and reader information.
 - Byte strings with explicit bit widths.
 - Result documents, nodes, values, and attributes.
-- Analyzer metadata.
+- Analyser metadata.
 - Trace records and documents.
 - Typed domain errors.
 
@@ -63,7 +63,7 @@ It provides:
 - Card insertion handling.
 - Shared or exclusive connection as appropriate.
 - T=0 and T=1 sessions.
-- Cold and warm reset behavior.
+- Cold and warm reset behaviour.
 - Short and extended APDU transmission.
 - Structured PC/SC errors.
 - Cooperative cancellation through a separate control context where supported.
@@ -84,14 +84,14 @@ This crate provides:
 Trace files preserve exact command bytes, response data, status words, reset modes, and ATR values.
 Trace decoding rejects unsupported schema versions and duplicate record identifiers.
 
-## cardpeek-analyzer
+## cardpeek-analyser
 
 This crate defines:
 
-- Analyzer metadata.
-- Static analyzer discovery.
-- Analyzer execution requests.
-- Analyzer execution results.
+- Analyser metadata.
+- Static analyser discovery.
+- Analyser execution requests.
+- Analyser execution results.
 - A runtime-independent execution contract.
 
 Discovery parses supported metadata headers without executing Lua.
@@ -99,10 +99,10 @@ Discovery parses supported metadata headers without executing Lua.
 ## cardpeek-lua
 
 This crate embeds vendored Lua 5.4 through mlua.
-It implements the native CardPeek NG Lua API.
-It does not provide legacy CardPeek globals, Lua 5.2 emulation, or compatibility shims.
+It implements the CardPeek-NG Lua API.
+It does not provide CardPeek globals, Lua 5.2 emulation, or compatibility shims.
 
-Each analyzer run receives:
+Each analyser run receives:
 
 - A fresh Lua state.
 - A fresh result document.
@@ -121,9 +121,9 @@ This crate owns application orchestration.
 
 It provides:
 
-- Reader and analyzer catalogs.
+- Reader and analyser catalogues.
 - Session lifecycle management.
-- Analyzer run lifecycle management.
+- Analyser run lifecycle management.
 - Command validation.
 - Ordered application events.
 - Cancellation.
@@ -139,10 +139,10 @@ They do not directly own PC/SC or Lua state.
 The CLI provides non-interactive commands for:
 
 - Reader discovery.
-- Analyzer discovery.
+- Analyser discovery.
 - Card information.
 - APDU transmission.
-- Analyzer execution.
+- Analyser execution.
 - Document export.
 - Trace capture and replay.
 
@@ -156,8 +156,8 @@ Its first release includes:
 
 - Reader selection.
 - Connection status.
-- Analyzer discovery and selection.
-- Analyzer progress and logs.
+- Analyser discovery and selection.
+- Analyser progress and logs.
 - Result tree navigation and search.
 - Question and text-input dialogs.
 - File selection.

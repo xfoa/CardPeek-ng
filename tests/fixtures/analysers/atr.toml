@@ -1,0 +1,14 @@
+schema_version = 1
+fixture_id = "atr-001"
+description = "CardPeek-NG ATR analyser used by the CLI replay vertical slice"
+origin = "synthetic"
+created_by = "CardPeek-NG contributors"
+source_project = "CardPeek-NG"
+source_url = ""
+source_revision = ""
+source_version = "1.0.0"
+retrieved_at = ""
+license = "GPL-3.0-or-later"
+contains_live_card_data = false
+sanitisation = "not-applicable"
+procedure = "Hand-authored Lua analyser; expected document uses atr-synthetic-001.json"

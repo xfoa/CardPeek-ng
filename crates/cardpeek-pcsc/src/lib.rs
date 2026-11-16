@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn native_status_is_not_synthesized() {
+    fn native_status_is_not_synthesised() {
         let error = PcscError::native(PcscOperation::Transmit, pcsc::Error::CommError);
         assert!(matches!(error.kind(), PcscErrorKind::Native(_)));
         assert!(!error.to_string().contains("6FFF"));

@@ -301,7 +301,7 @@ fn concurrent_frontend_submissions_preserve_session_and_event_order() {
 }
 
 #[test]
-fn replay_session_serializes_commands_and_exports_trace() {
+fn replay_session_serialises_commands_and_exports_trace() {
     let app = application(EngineConfig::default());
     let (session, events) = connect(&app);
     let command = vec![0x00, 0xa4, 0x04, 0x00, 0x02, 0xa0, 0x00];
@@ -382,7 +382,7 @@ fn duplicate_command_and_second_session_are_rejected() {
 fn interaction_accepts_only_matching_type_and_id() {
     let app = application(EngineConfig::default());
     let (_session, events) = connect(&app);
-    let context = app.analyzer_context(
+    let context = app.analyser_context(
         OperationId::new("interaction-test"),
         RunId::new("interaction-run").unwrap(),
         CancellationToken::new(),
@@ -425,7 +425,7 @@ fn interaction_accepts_only_matching_type_and_id() {
 fn cancellation_wakes_an_interaction() {
     let app = application(EngineConfig::default());
     let (_session, events) = connect(&app);
-    let context = app.analyzer_context(
+    let context = app.analyser_context(
         OperationId::new("cancellation-test"),
         RunId::new("cancellation-run").unwrap(),
         CancellationToken::new(),

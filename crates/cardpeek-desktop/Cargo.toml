@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-desktop"
-description = "Dioxus desktop frontend for CardPeek NG"
+description = "Dioxus desktop frontend for CardPeek-NG"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

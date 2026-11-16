@@ -1,0 +1,16 @@
+[package]
+name = "cardpeek-analyser"
+description = "Runtime-independent analyser contracts for CardPeek-NG"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cardpeek-core = { path = "../cardpeek-core" }
+cardpeek-transport = { path = "../cardpeek-transport" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

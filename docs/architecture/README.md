@@ -1,9 +1,9 @@
-# CardPeek NG architecture
+# CardPeek-NG architecture
 
 - [Overview and architectural rules](overview.md)
 - [Workspace and components](workspace.md)
 - [Application runtime](application-runtime.md)
 - [Native data models](data-models.md)
-- [Native Lua API](lua-api.md)
+- [Lua API](lua-api.md)
 - [Security and privacy](security.md)
 - [Testing strategy](testing.md)

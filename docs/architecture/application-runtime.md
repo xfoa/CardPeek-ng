@@ -11,8 +11,8 @@ The initial command families are:
 - Disconnect.
 - Reset.
 - Transmit an APDU.
-- Discover analyzers.
-- Run an analyzer.
+- Discover analysers.
+- Run an analyser.
 - Cancel an operation.
 - Answer an interaction.
 - Export a document.
@@ -22,7 +22,7 @@ Events include:
 
 - Session state changed.
 - APDU exchanged.
-- Analyzer log emitted.
+- Analyser log emitted.
 - Document revision published.
 - Interaction requested.
 - Operation progressed.
@@ -58,7 +58,7 @@ Cancellation is cooperative.
 - PC/SC cancellation uses a separate control context where supported.
 - Native exchanges are recorded before a cancellation result is reported.
 - Ordinary command cancellation does not disconnect the session.
-- Disconnect and worker cleanup have defined behavior after cancellation.
+- Disconnect and worker cleanup have defined behaviour after cancellation.
 - Each operation reaches at most one terminal state.
 
 The application does not force-kill the worker thread.

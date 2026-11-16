@@ -35,11 +35,11 @@ pub struct ResultNode {
     /// Parent identifier, absent for top-level nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<NodeId>,
-    /// Analyzer-defined class.
+    /// Analyser-defined class.
     pub class: String,
     /// Display label.
     pub label: String,
-    /// Analyzer-defined identifier.
+    /// Analyser-defined identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
     /// Optional exact size in bits.
@@ -108,7 +108,7 @@ pub struct ResultDocument {
     pub schema_version: u32,
     /// Stable document identifier.
     pub id: DocumentId,
-    /// Originating analyzer run.
+    /// Originating analyser run.
     pub run_id: RunId,
     /// Monotonic document revision.
     pub revision: u64,
@@ -169,7 +169,7 @@ impl ResultDocument {
     ///
     /// # Errors
     ///
-    /// Returns an error for an invalid document or a serialization failure.
+    /// Returns an error for an invalid document or a serialisation failure.
     pub fn to_json(&self) -> Result<String, CoreError> {
         self.validate()?;
         Ok(serde_json::to_string_pretty(self)?)

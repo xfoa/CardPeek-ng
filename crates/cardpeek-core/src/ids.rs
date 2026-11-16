@@ -40,6 +40,6 @@ macro_rules! string_id {
 }
 
 string_id!(DocumentId, "A stable document identifier.");
-string_id!(RunId, "A stable analyzer run identifier.");
+string_id!(RunId, "A stable analyser run identifier.");
 string_id!(NodeId, "A stable run-scoped result node identifier.");
 string_id!(TraceRecordId, "A stable trace record identifier.");

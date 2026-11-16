@@ -40,7 +40,7 @@ impl TraceRecord {
     }
 }
 
-/// Reset behavior represented by a trace record.
+/// Reset behaviour represented by a trace record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResetMode {
@@ -132,7 +132,7 @@ impl TraceDocument {
     ///
     /// # Errors
     ///
-    /// Returns an error for an invalid trace or a serialization failure.
+    /// Returns an error for an invalid trace or a serialisation failure.
     pub fn to_json(&self) -> Result<String, CoreError> {
         self.validate()?;
         Ok(serde_json::to_string_pretty(self)?)

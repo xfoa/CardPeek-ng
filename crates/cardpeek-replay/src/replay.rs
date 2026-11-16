@@ -141,6 +141,12 @@ impl ReplaySession {
         })
     }
 
+    /// Returns the identifier of the active reset record.
+    #[must_use]
+    pub fn current_reset_id(&self) -> Option<&TraceRecordId> {
+        self.current_atr.and_then(|index| self.record_id(index))
+    }
+
     /// Returns the identifier of a record by index.
     #[must_use]
     pub fn record_id(&self, index: usize) -> Option<&TraceRecordId> {

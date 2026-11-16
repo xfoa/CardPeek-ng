@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>CardPeek NG - Desktop UI Prototype</title>
+  <title>CardPeek-NG - Desktop UI Prototype</title>
   <style>
     :root {
       --ink: #17242b;
@@ -526,14 +526,14 @@
             </div>
           </section>
           <section class="setup-section">
-            <label class="section-label" for="analyzer-a">Analyzer</label>
-            <select class="select" id="analyzer-a">
+            <label class="section-label" for="analyser-a">Analyser</label>
+            <select class="select" id="analyser-a">
               <option>ATR analysis</option>
               <option>EMV</option>
               <option>Calypso</option>
             </select>
-            <p class="field-note">ATR analyzer 1.0<br>Trusted native analyzer</p>
-            <button class="button button-primary button-wide" type="button" data-run>Run analyzer</button>
+            <p class="field-note">ATR analyser 1.0<br>Trusted native analyser</p>
+            <button class="button button-primary button-wide" type="button" data-run>Run analyser</button>
             <div style="margin-top:14px">
               <div class="progress-track"><div class="progress-bar" data-progress-bar></div></div>
               <div class="progress-meta"><span data-run-status>Complete</span><span data-progress-label>100%</span></div>
@@ -542,7 +542,7 @@
           <section class="setup-section">
             <div class="notice">
               <span aria-hidden="true">!</span>
-              <div><strong>Trusted scripts only</strong>Legacy analyzers can access local files and system facilities. They are not sandboxed.</div>
+              <div><strong>Trusted scripts only</strong>Legacy analysers can access local files and system facilities. They are not sandboxed.</div>
             </div>
             <div style="margin-top:18px">
               <label class="section-label" for="interaction-a">Preview an interaction</label>
@@ -605,13 +605,13 @@
             </div>
           </section>
         </div>
-        <section class="pane activity-pane" aria-label="Analyzer activity">
-          <div class="pane-header"><h2 class="pane-title">Analyzer activity</h2><button class="button button-quiet" type="button" data-clear-log>Clear log</button></div>
+        <section class="pane activity-pane" aria-label="Analyser activity">
+          <div class="pane-header"><h2 class="pane-title">Analyser activity</h2><button class="button button-quiet" type="button" data-clear-log>Clear log</button></div>
           <div class="activity-body">
             <ul class="log-list" data-log-list>
               <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li>
               <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Cold reset returned 19 ATR bytes</span></li>
-              <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li>
+              <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyser completed; document revision 4 published</span></li>
             </ul>
             <div class="activity-summary">
               <div class="metric-line"><strong>24</strong><span><span class="term" tabindex="0" data-term="apdu">APDU</span> exchanges</span></div>
@@ -630,7 +630,7 @@
         <ol class="steps">
           <li class="step done"><span class="step-number">1</span><div><strong>Select reader</strong><small>Replay: ATR sample</small></div></li>
           <li class="step done"><span class="step-number">2</span><div><strong>Connect card</strong><small>T=1 / Cold reset</small></div></li>
-          <li class="step done"><span class="step-number">3</span><div><strong>Choose analyzer</strong><small>ATR analysis 1.0</small></div></li>
+          <li class="step done"><span class="step-number">3</span><div><strong>Choose analyser</strong><small>ATR analysis 1.0</small></div></li>
           <li class="step current"><span class="step-number">4</span><div><strong>Review result</strong><small>Document revision 4</small></div></li>
           <li class="step"><span class="step-number">5</span><div><strong>Export</strong><small>Document or trace</small></div></li>
         </ol>
@@ -639,7 +639,7 @@
         <section class="workflow-hero">
           <p class="eyebrow">Analysis complete</p>
           <h2><span class="term" tabindex="0" data-term="atr">ATR</span> result is ready</h2>
-          <p>The <span class="term" tabindex="0" data-term="replay">replay</span> analyzer decoded 19 bytes and published 8 result nodes. This workflow uses synthetic data and no hardware.</p>
+          <p>The <span class="term" tabindex="0" data-term="replay">replay</span> analyser decoded 19 bytes and published 8 result nodes. This workflow uses synthetic data and no hardware.</p>
           <div class="run-panel">
             <div class="run-panel-top">
               <div><div class="status-line"><span class="status-dot" data-connection-dot></span><h3 data-run-status>Complete</h3></div><p class="field-note">24 exchanges / 1.24 seconds / 0 warnings</p></div>
@@ -654,7 +654,7 @@
           <ul class="log-list" data-log-list>
             <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li>
             <li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Cold reset returned 19 ATR bytes</span></li>
-            <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li>
+            <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyser completed; document revision 4 published</span></li>
           </ul>
           <div class="notice notice-safe" style="margin-top:20px"><span aria-hidden="true">i</span><div><strong>No telemetry or automatic updates</strong>Card data and trace files stay on this device unless you export them.</div></div>
         </section>
@@ -665,7 +665,7 @@
           <dl class="config-list">
             <div><dt>Reader</dt><dd>Replay: ATR sample</dd></div>
             <div><dt>Session</dt><dd><span class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span></span></dd></div>
-            <div><dt>Analyzer</dt><dd>ATR analysis 1.0</dd></div>
+            <div><dt>Analyser</dt><dd>ATR analysis 1.0</dd></div>
             <div><dt>Script trust</dt><dd>Trusted native code</dd></div>
           </dl>
         </section>
@@ -695,7 +695,7 @@
       <div class="session-strip">
         <div class="session-item"><span class="section-label" style="margin:0">Reader</span><strong><span class="term" tabindex="0" data-term="replay">Replay</span>: <span class="term" tabindex="0" data-term="atr">ATR</span> sample</strong></div>
         <div class="session-item"><span class="section-label" style="margin:0">Connection</span><strong class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span> / <span class="term" tabindex="0" data-term="t1">T=1</span></strong></div>
-        <div class="session-item"><span class="section-label" style="margin:0">Analyzer</span><strong><span class="term" tabindex="0" data-term="atr">ATR</span> analysis 1.0</strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Analyser</span><strong><span class="term" tabindex="0" data-term="atr">ATR</span> analysis 1.0</strong></div>
         <div class="run-actions"><button class="button" type="button" data-cancel disabled>Cancel</button><button class="button button-primary" type="button" data-run>Run again</button></div>
       </div>
       <div class="results-workbench">
@@ -746,7 +746,7 @@
         </aside>
       </div>
       <div class="results-console pane">
-        <section class="console-log"><div class="pane-header" style="padding-left:0;padding-right:0"><h2 class="pane-title">Activity log</h2><span class="muted small">Bounded event stream</span></div><ul class="log-list" data-log-list><li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li><li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li></ul></section>
+        <section class="console-log"><div class="pane-header" style="padding-left:0;padding-right:0"><h2 class="pane-title">Activity log</h2><span class="muted small">Bounded event stream</span></div><ul class="log-list" data-log-list><li><span class="log-time">14:32:08</span><span class="log-level">INFO</span><span>Connected to replay transport</span></li><li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyser completed; document revision 4 published</span></li></ul></section>
         <aside class="console-export"><h2 class="pane-title">Export</h2><p>Choose a document format or a trace mode. Raw captures remain sensitive.</p><button class="button button-primary button-wide" type="button" data-open-export>Choose export</button></aside>
       </div>
     </section>
@@ -760,7 +760,7 @@
   </nav>
 
   <dialog id="interaction-dialog" aria-labelledby="interaction-title">
-    <div class="dialog-header"><div><h2 id="interaction-title">Analyzer request</h2><p>Interaction request req-0042 / Run run-003</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
+    <div class="dialog-header"><div><h2 id="interaction-title">Analyser request</h2><p>Interaction request req-0042 / Run run-003</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
     <div class="dialog-body" id="interaction-body"></div>
     <div class="dialog-footer" id="interaction-footer"></div>
   </dialog>
@@ -773,7 +773,7 @@
         <div class="option-list">
           <label class="radio-option"><input type="radio" name="export-type" value="json" checked><span><strong>Result document - JSON</strong><small>Versioned native schema with stable node IDs.</small></span></label>
           <label class="radio-option"><input type="radio" name="export-type" value="trace"><span><strong>Trace - Native JSON</strong><small>Versioned native schema with exact APDU exchanges.</small></span></label>
-          <label class="radio-option"><input type="radio" name="export-type" value="sanitized"><span><strong>Trace - Sanitized JSON export</strong><small>Redacted for sharing. Redaction cannot remove every secret.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="sanitised"><span><strong>Trace - Sanitised JSON export</strong><small>Redacted for sharing. Redaction cannot remove every secret.</small></span></label>
           <label class="radio-option"><input type="radio" name="export-type" value="raw"><span><strong>Trace - Raw capture</strong><small>Faithful replay with sensitive APDU data.</small></span></label>
         </div>
         <div class="notice notice-danger" id="raw-warning" hidden><span aria-hidden="true">!</span><div><strong>Sensitive file</strong>Store this raw trace securely. Do not share live card secrets.</div></div>
@@ -816,11 +816,11 @@
         apdu: "Application Protocol Data Unit. A command sent to a smart card or a response returned by the card.",
         pcsc: "Personal Computer/Smart Card. The standard operating-system interface for communication with smart-card readers.",
         mime: "Multipurpose Internet Mail Extensions. A MIME type identifies the value format. For example, application/octet-stream identifies binary data.",
-        "node-id": "A stable identifier for a result node within one analyzer run. It identifies the same node across document updates.",
+        "node-id": "A stable identifier for a result node within one analyser run. It identifies the same node across document updates.",
         t1: "T=1 is an ISO 7816 block-oriented transmission protocol used between a reader and a smart card.",
-        replay: "A transport that reproduces recorded card exchanges. It lets you test analyzers without a physical reader or card.",
-        revision: "A result-document version number. The application increments it when an analyzer publishes an updated document.",
-        "run-id": "A unique identifier for one analyzer execution.",
+        replay: "A transport that reproduces recorded card exchanges. It lets you test analysers without a physical reader or card.",
+        revision: "A result-document version number. The application increments it when an analyser publishes an updated document.",
+        "run-id": "A unique identifier for one analyser execution.",
         "cold-reset": "A reset that restores card power before communication starts. A warm reset keeps card power on."
       };
       const termTooltip = document.getElementById("term-tooltip");
@@ -876,18 +876,18 @@
         const url = new URL(window.location.href);
         url.searchParams.set("variant", variant.key);
         history.replaceState(null, "", url);
-        document.title = "CardPeek NG - " + variant.name;
+        document.title = "CardPeek-NG - " + variant.name;
       };
 
       const interactionContent = {
         secret: {
           title: "Card verification required",
-          body: '<p>The analyzer requests the card PIN. PIN values never enter application logs.</p><label class="section-label" for="secret-value">PIN</label><input class="text-input" id="secret-value" type="password" autocomplete="off" placeholder="Enter PIN"><p class="field-note">Secret input is masked. This prototype does not store the value.</p>',
+          body: '<p>The analyser requests the card PIN. PIN values never enter application logs.</p><label class="section-label" for="secret-value">PIN</label><input class="text-input" id="secret-value" type="password" autocomplete="off" placeholder="Enter PIN"><p class="field-note">Secret input is masked. This prototype does not store the value.</p>',
           actions: '<button class="button" type="button" data-close-dialog>Cancel run</button><button class="button button-primary" type="button" data-interaction-submit="Secret response sent without logging its value.">Submit PIN</button>'
         },
         question: {
           title: "Continue analysis?",
-          body: '<p>The selected application contains records that the analyzer has not read. Do you want to read them now?</p><div class="notice"><span aria-hidden="true">?</span><div><strong>Analyzer question</strong>The worker waits for this correlated response or cancellation.</div></div>',
+          body: '<p>The selected application contains records that the analyser has not read. Do you want to read them now?</p><div class="notice"><span aria-hidden="true">?</span><div><strong>Analyser question</strong>The worker waits for this correlated response or cancellation.</div></div>',
           actions: '<button class="button" type="button" data-interaction-submit="No answer sent.">No</button><button class="button button-primary" type="button" data-interaction-submit="Yes answer sent.">Yes</button>'
         },
         text: {
@@ -896,8 +896,8 @@
           actions: '<button class="button" type="button" data-close-dialog>Cancel</button><button class="button button-primary" type="button" data-interaction-submit="Text response sent.">Submit</button>'
         },
         file: {
-          title: "Select analyzer resource",
-          body: '<p>Select a trusted local resource for the analyzer.</p><label class="section-label" for="file-value">Resource file</label><input class="text-input" id="file-value" type="file"><p class="field-note">The selected path is returned through the interaction broker.</p>',
+          title: "Select analyser resource",
+          body: '<p>Select a trusted local resource for the analyser.</p><label class="section-label" for="file-value">Resource file</label><input class="text-input" id="file-value" type="file"><p class="field-note">The selected path is returned through the interaction broker.</p>',
           actions: '<button class="button" type="button" data-close-dialog>Cancel</button><button class="button button-primary" type="button" data-interaction-submit="File selection confirmed.">Use selected file</button>'
         }
       };
@@ -1021,14 +1021,14 @@
         let progress = 0;
         updateProgress(progress);
         updateRunState("Running", true);
-        appendLog("Analyzer run started with a fresh result document");
+        appendLog("Analyser run started with a fresh result document");
         runTimer = setInterval(() => {
           progress += 10;
           updateProgress(progress);
           if (progress >= 100) {
             stopRun();
             updateRunState("Complete", false);
-            appendLog("Analyzer completed; document revision 5 published");
+            appendLog("Analyser completed; document revision 5 published");
           }
         }, 140);
       }));

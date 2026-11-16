@@ -11,7 +11,7 @@ The native document model includes:
 - A parent relationship.
 - Class, label, and identifier attributes.
 - Size, value, alternative value, and MIME type.
-- Extension attributes required by analyzers.
+- Extension attributes required by analysers.
 
 Byte strings retain their bit width.
 

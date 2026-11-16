@@ -13,12 +13,13 @@ use std::time::Duration;
 
 use cardpeek_core::{ReaderInfo, ResultDocument, RunId, TraceDocument};
 
-pub use interaction::AnalyzerContext;
+pub use cardpeek_analyser::{AnalyserMetadata, discover};
+pub use interaction::AnalyserContext;
 use state::SharedState;
 pub use sync::{CancellationHandle, CancellationToken, SubmitError};
 use sync::{CommandQueue, EventQueue, InteractionSlot, lock_unpoisoned};
 pub use types::*;
-pub use worker::{AnalyzerHost, SessionBackend};
+pub use worker::{AnalyserHost, SessionBackend};
 use worker::{SessionRuntime, WorkerCommand};
 
 /// Owns the command dispatcher and all active session workers.
@@ -26,6 +27,7 @@ pub struct Application<B: SessionBackend> {
     backend: Arc<B>,
     config: EngineConfig,
     shared: SharedState,
+    analysers: Arc<std::sync::Mutex<HashMap<String, AnalyserMetadata>>>,
     commands: Arc<CommandQueue<Command>>,
     subscribers: Arc<std::sync::Mutex<Vec<Arc<EventQueue>>>>,
     interactions: Arc<std::sync::Mutex<HashMap<InteractionId, Arc<InteractionSlot>>>>,
@@ -57,6 +59,7 @@ impl<B: SessionBackend> Application<B> {
             backend,
             config,
             shared: SharedState::new(),
+            analysers: Arc::new(std::sync::Mutex::new(HashMap::new())),
             commands: Arc::new(CommandQueue::new(config.command_capacity)),
             subscribers: Arc::new(std::sync::Mutex::new(Vec::new())),
             interactions: Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -124,15 +127,15 @@ impl<B: SessionBackend> Application<B> {
         self.shared.readers()
     }
 
-    /// Creates analyzer services that share this application's event and interaction brokers.
+    /// Creates analyser services that share this application's event and interaction brokers.
     #[must_use]
-    pub fn analyzer_context(
+    pub fn analyser_context(
         &self,
         operation: OperationId,
         run_id: RunId,
         token: CancellationToken,
-    ) -> AnalyzerContext {
-        AnalyzerContext::new(
+    ) -> AnalyserContext {
+        AnalyserContext::new(
             operation,
             run_id,
             token,
@@ -143,7 +146,15 @@ impl<B: SessionBackend> Application<B> {
         )
     }
 
-    /// Returns the latest immutable document for an analyzer run.
+    /// Returns analysers from the latest successful static discovery.
+    #[must_use]
+    pub fn analysers(&self) -> Vec<AnalyserMetadata> {
+        let mut analysers: Vec<_> = lock_unpoisoned(&self.analysers).values().cloned().collect();
+        analysers.sort_by(|left, right| left.id.cmp(&right.id));
+        analysers
+    }
+
+    /// Returns the latest immutable document for an analyser run.
     #[must_use]
     pub fn document_snapshot(&self, run_id: &RunId) -> Option<DocumentSnapshot> {
         let document = lock_unpoisoned(&self.documents).get(run_id).cloned()?;
@@ -237,14 +248,14 @@ impl<B: SessionBackend> Application<B> {
         Ok(())
     }
 
-    /// Emits an analyzer log event.
+    /// Emits an analyser log event.
     pub fn emit_log(&self, run_id: RunId, level: LogLevel, message: impl Into<String>) {
         let operation = self
             .operations()
             .into_iter()
             .find(|operation| operation.run_id.as_ref() == Some(&run_id))
             .map_or_else(
-                || OperationId::new("analyzer-log"),
+                || OperationId::new("analyser-log"),
                 |operation| operation.id,
             );
         self.emit(Event::new(
@@ -292,6 +303,7 @@ impl<B: SessionBackend> Application<B> {
             backend: self.backend.clone(),
             config: self.config,
             shared: self.shared.clone(),
+            analysers: self.analysers.clone(),
             subscribers: self.subscribers.clone(),
             interactions: self.interactions.clone(),
             cancellations: self.cancellations.clone(),
@@ -347,6 +359,7 @@ struct Dispatcher<B: SessionBackend> {
     backend: Arc<B>,
     config: EngineConfig,
     shared: SharedState,
+    analysers: Arc<std::sync::Mutex<HashMap<String, AnalyserMetadata>>>,
     subscribers: Arc<std::sync::Mutex<Vec<Arc<EventQueue>>>>,
     interactions: Arc<std::sync::Mutex<HashMap<InteractionId, Arc<InteractionSlot>>>>,
     cancellations: Arc<std::sync::Mutex<HashMap<OperationId, CancellationHandle>>>,
@@ -385,7 +398,7 @@ impl<B: SessionBackend> Dispatcher<B> {
             CommandKind::Disconnect
             | CommandKind::Reset(_)
             | CommandKind::Transmit(_)
-            | CommandKind::RunAnalyzer(_) => {
+            | CommandKind::RunAnalyser(_) => {
                 let handle = self.backend.cancellation_interrupt(&token).map_or_else(
                     || CancellationHandle::new(token.clone()),
                     |interrupt| CancellationHandle::with_interrupt(token.clone(), interrupt),
@@ -400,9 +413,7 @@ impl<B: SessionBackend> Dispatcher<B> {
                     self.fail(&operation, &error);
                 }
             }
-            CommandKind::DiscoverAnalyzers(_) => {
-                self.fail(&operation, &AppError::AnalyzerDiscoveryUnavailable);
-            }
+            CommandKind::DiscoverAnalysers(root) => self.discover_analysers(&operation, &root),
             CommandKind::Cancel(target) => {
                 let result = self
                     .shared
@@ -450,6 +461,21 @@ impl<B: SessionBackend> Dispatcher<B> {
         }
     }
 
+    fn discover_analysers(&self, operation: &OperationId, root: &std::path::Path) {
+        self.shared.begin(operation);
+        match cardpeek_analyser::discover(root) {
+            Ok(discovered) => {
+                let mut analysers = lock_unpoisoned(&self.analysers);
+                analysers.clear();
+                for metadata in discovered {
+                    analysers.insert(metadata.id.clone(), metadata);
+                }
+                self.complete(operation);
+            }
+            Err(error) => self.fail(operation, &AppError::AnalyserDiscovery(error)),
+        }
+    }
+
     fn enumerate(&self, operation: &OperationId, token: &CancellationToken) {
         self.shared.begin(operation);
         let result = token.check().and_then(|()| self.backend.list_readers());
@@ -472,6 +498,10 @@ impl<B: SessionBackend> Dispatcher<B> {
             subscribers: self.subscribers.clone(),
             session_traces: self.session_traces.clone(),
             sequence: self.sequence.clone(),
+            analysers: self.analysers.clone(),
+            documents: self.documents.clone(),
+            interactions: self.interactions.clone(),
+            interaction_timeout: self.config.interaction_timeout,
         };
         let handle = runtime.spawn(operation.clone(), request, queue);
         lock_unpoisoned(&self.workers).push(handle);

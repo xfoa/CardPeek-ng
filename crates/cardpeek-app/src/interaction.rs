@@ -10,9 +10,9 @@ use crate::{
     LogLevel, OperationId, Progress, Result, emit_to,
 };
 
-/// Services available to one analyzer operation.
+/// Services available to one analyser operation.
 #[derive(Clone)]
-pub struct AnalyzerContext {
+pub struct AnalyserContext {
     operation: OperationId,
     run_id: RunId,
     token: CancellationToken,
@@ -22,7 +22,7 @@ pub struct AnalyzerContext {
     interaction_timeout: Duration,
 }
 
-impl AnalyzerContext {
+impl AnalyserContext {
     pub(crate) fn new(
         operation: OperationId,
         run_id: RunId,
@@ -57,7 +57,7 @@ impl AnalyzerContext {
         });
     }
 
-    /// Emits a structured analyzer log.
+    /// Emits a structured analyser log.
     pub fn log(&self, level: LogLevel, message: impl Into<String>) {
         self.emit(EventKind::LogEmitted {
             run_id: self.run_id.clone(),

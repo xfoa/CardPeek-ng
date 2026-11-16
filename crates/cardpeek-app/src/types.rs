@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cardpeek_analyser::DiscoveryError;
 use cardpeek_core::{
-    ApduResponse, Atr, CoreError, Protocol, ReaderInfo, ResetMode, ResultDocument, RunId,
-    TraceRecordId, TransportKind,
+    ApduResponse, Atr, CoreError, DocumentId, Protocol, ReaderInfo, ResetMode, ResultDocument,
+    RunId, TraceRecordId, TransportKind,
 };
 use cardpeek_transport::SessionCapabilities;
 use serde::{Deserialize, Serialize};
@@ -103,21 +104,24 @@ pub enum AppError {
     #[error("interaction timed out")]
     InteractionTimeout,
     /// No result document exists for the run.
-    #[error("no result document for analyzer run {0}")]
+    #[error("no result document for analyser run {0}")]
     MissingDocument(RunId),
     /// No disconnected session trace is available.
     #[error("trace is not available")]
     TraceUnavailable,
-    /// Analyzer execution belongs to milestone 5.
-    #[error("analyzer execution is not available yet")]
-    AnalyzerRuntimeUnavailable,
-    /// Analyzer discovery belongs to milestone 5.
-    #[error("analyzer discovery is not available yet")]
-    AnalyzerDiscoveryUnavailable,
+    /// Analyser metadata discovery failed.
+    #[error(transparent)]
+    AnalyserDiscovery(#[from] DiscoveryError),
+    /// The selected analyser has not been discovered.
+    #[error("unknown analyser {0}")]
+    AnalyserNotFound(String),
+    /// Lua analyser execution failed.
+    #[error("analyser error: {0}")]
+    Analyser(String),
     /// A native transport operation failed.
     #[error("transport error: {0}")]
     Transport(#[source] Box<dyn std::error::Error + Send + Sync>),
-    /// Core validation or serialization failed.
+    /// Core validation or serialisation failed.
     #[error(transparent)]
     Core(#[from] CoreError),
     /// An export destination could not be written.
@@ -229,10 +233,10 @@ pub enum CommandKind {
     Reset(ResetMode),
     /// Transmit exact APDU bytes.
     Transmit(Vec<u8>),
-    /// Discover analyzers without executing scripts.
-    DiscoverAnalyzers(PathBuf),
-    /// Start one analyzer run.
-    RunAnalyzer(RunId),
+    /// Discover analysers without executing scripts.
+    DiscoverAnalysers(PathBuf),
+    /// Start one analyser run.
+    RunAnalyser(RunAnalyserRequest),
     /// Request cancellation of one operation.
     Cancel(OperationId),
     /// Answer one pending interaction.
@@ -247,6 +251,17 @@ pub enum CommandKind {
 
 /// Correlates a response with one interaction request.
 #[derive(Clone, Debug)]
+pub struct RunAnalyserRequest {
+    /// Discovered analyser identifier.
+    pub analyser: String,
+    /// Stable identifier for this run.
+    pub run_id: RunId,
+    /// Stable identifier for the fresh result document.
+    pub document_id: DocumentId,
+}
+
+/// Correlates a response with one interaction request.
+#[derive(Clone, Debug)]
 pub struct AnswerInteraction {
     /// Pending request identifier.
     pub request: InteractionId,
@@ -257,7 +272,7 @@ pub struct AnswerInteraction {
 /// Native document export parameters.
 #[derive(Clone, Debug)]
 pub struct ExportDocument {
-    /// Originating analyzer run.
+    /// Originating analyser run.
     pub run_id: RunId,
     /// Explicit destination path.
     pub destination: PathBuf,
@@ -285,10 +300,10 @@ pub enum OperationKind {
     Reset,
     /// APDU transmission.
     Transmit,
-    /// Static analyzer discovery.
-    DiscoverAnalyzers,
-    /// Analyzer execution.
-    RunAnalyzer,
+    /// Static analyser discovery.
+    DiscoverAnalysers,
+    /// Analyser execution.
+    RunAnalyser,
     /// Operation cancellation.
     Cancel,
     /// Interaction response.
@@ -337,7 +352,7 @@ pub struct Operation {
     pub kind: OperationKind,
     /// Current lifecycle state.
     pub status: OperationStatus,
-    /// Analyzer run, where applicable.
+    /// Analyser run, where applicable.
     pub run_id: Option<RunId>,
 }
 
@@ -373,7 +388,7 @@ pub enum SessionState {
     Disconnected,
 }
 
-/// Structured analyzer log severity.
+/// Structured analyser log severity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     /// Diagnostic detail.
@@ -466,7 +481,7 @@ impl InteractionResponse {
 /// Immutable result document snapshot.
 #[derive(Clone, Debug)]
 pub struct DocumentSnapshot {
-    /// Originating analyzer run.
+    /// Originating analyser run.
     pub run_id: RunId,
     /// Snapshot revision.
     pub revision: u64,
@@ -477,7 +492,7 @@ pub struct DocumentSnapshot {
 /// Counts of notifications removed under bounded-channel pressure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DroppedEvents {
-    /// Dropped analyzer log messages.
+    /// Dropped analyser log messages.
     pub logs: u64,
     /// Coalesced or dropped document notifications.
     pub document_notifications: u64,
@@ -532,9 +547,9 @@ pub enum EventKind {
         /// Card response.
         response: ApduResponse,
     },
-    /// Analyzer emitted a structured log message.
+    /// Analyser emitted a structured log message.
     LogEmitted {
-        /// Analyzer run.
+        /// Analyser run.
         run_id: RunId,
         /// Log severity.
         level: LogLevel,
@@ -543,7 +558,7 @@ pub enum EventKind {
     },
     /// A new immutable document revision is available.
     DocumentPublished {
-        /// Analyzer run.
+        /// Analyser run.
         run_id: RunId,
         /// Published revision.
         revision: u64,

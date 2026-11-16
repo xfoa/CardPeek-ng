@@ -72,7 +72,7 @@ impl SharedState {
             CommandKind::Disconnect
                 | CommandKind::Reset(_)
                 | CommandKind::Transmit(_)
-                | CommandKind::RunAnalyzer(_)
+                | CommandKind::RunAnalyser(_)
         ) && state.worker.is_none()
         {
             return Err(AppError::NoActiveSession);
@@ -85,7 +85,7 @@ impl SharedState {
                 kind: OperationKind::from(command),
                 status: OperationStatus::Pending,
                 run_id: match &command.kind {
-                    CommandKind::RunAnalyzer(run_id) => Some(run_id.clone()),
+                    CommandKind::RunAnalyser(request) => Some(request.run_id.clone()),
                     _ => None,
                 },
             },
@@ -166,7 +166,7 @@ impl SharedState {
                     OperationKind::Disconnect
                         | OperationKind::Reset
                         | OperationKind::Transmit
-                        | OperationKind::RunAnalyzer
+                        | OperationKind::RunAnalyser
                 );
                 if operation.status == OperationStatus::Pending
                     && operation.id != *session
@@ -265,8 +265,8 @@ impl OperationKind {
             CommandKind::Disconnect => Self::Disconnect,
             CommandKind::Reset(_) => Self::Reset,
             CommandKind::Transmit(_) => Self::Transmit,
-            CommandKind::DiscoverAnalyzers(_) => Self::DiscoverAnalyzers,
-            CommandKind::RunAnalyzer(_) => Self::RunAnalyzer,
+            CommandKind::DiscoverAnalysers(_) => Self::DiscoverAnalysers,
+            CommandKind::RunAnalyser(_) => Self::RunAnalyser,
             CommandKind::Cancel(_) => Self::Cancel,
             CommandKind::AnswerInteraction(_) => Self::AnswerInteraction,
             CommandKind::ExportDocument(_) => Self::ExportDocument,

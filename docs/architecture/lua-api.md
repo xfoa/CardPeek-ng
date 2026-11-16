@@ -1,19 +1,25 @@
-# Native Lua API contract
+# Lua API contract
 
 ## Runtime and startup
 
-The runtime loads each analyzer with `require("cardpeek")`.
-The module exposes the native CardPeek NG API through one namespace.
-It does not install legacy CardPeek globals or emulate legacy Lua behavior.
+The runtime loads each analyser with `require("cardpeek")`.
+The module exposes the CardPeek-NG API through one namespace.
+It does not install CardPeek globals or emulate CardPeek Lua behaviour.
 
-Analyzer discovery does not execute the analyzer.
+Analyser discovery does not execute the analyser.
+Metadata headers contain `@id`, `@title`, `@description`, and `@version` in leading Lua line comments.
 The runtime provides explicit script and resource roots.
 Module loading and file access follow the trusted-script policy.
-The first release does not provide `dofile` compatibility behavior.
+The first release does not provide `dofile` compatibility behaviour.
+Each run receives fresh Lua state, fresh document identifiers, and stable sequential node identifiers.
+The `cardpeek.card.atr()` and `cardpeek.card.reset()` calls return an ATR result and an error value.
+The ATR result contains typed `bytes` and an optional source `record` identifier.
+`cardpeek.card.transmit()` returns response data, status components, and a description.
+Native failures use the separate error result.
 
 ## API areas
 
-| Module | Required behavior | Initial validation |
+| Module | Required behaviour | Initial validation |
 | --- | --- | --- |
 | `cardpeek.bytes` | Constructors, explicit widths, indexing, iteration, slices, concatenation, comparison, conversion, and formatting | Focused unit tests and ATR fixtures |
 | `cardpeek.card` | Session information, reset, ATR access, explicit APDU transmission, protocol, and capabilities | Replay integration tests |
@@ -22,12 +28,12 @@ The first release does not provide `dofile` compatibility behavior.
 | `cardpeek.ui` | Questions, text input, secret input, and file selection | Broker integration tests |
 | `cardpeek.progress` | Determinate and indeterminate progress | Application event tests |
 
-The native card API returns structured success and error values.
+The card API returns structured success and error values.
 It does not perform implicit retries after status 6C.
 It does not issue implicit GET RESPONSE commands after status 61.
-Analyzers may implement those operations explicitly.
+Analysers may implement those operations explicitly.
 
 Binary values cross the Lua boundary as typed native values.
 Legacy `1:`, `4:`, and `8:` prefixes remain confined to XML conversion.
 
-Each bundled analyzer has replay fixtures and expected result documents.
+Each bundled analyser has replay fixtures and expected result documents.

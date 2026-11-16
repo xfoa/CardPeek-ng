@@ -8,7 +8,7 @@ Hardware access must never be required to read or use them.
 
 - `traces/` contains versioned native JSON trace captures.
 - `documents/` contains versioned native JSON documents.
-- `analyzers/` contains analyzer scripts and resources used by tests.
+- `analysers/` contains analyser scripts and resources used by tests.
 
 Each fixture or fixture set must have an adjacent metadata file.
 Use a TOML metadata file with the fields below.
@@ -19,7 +19,7 @@ schema_version = 1
 fixture_id = "atr-synthetic-001"
 description = "Synthetic ATR replay example"
 origin = "synthetic"
-created_by = "CardPeek NG contributors"
+created_by = "CardPeek-NG contributors"
 source_project = ""
 source_url = ""
 source_revision = ""
@@ -27,7 +27,7 @@ source_version = ""
 retrieved_at = ""
 license = "GPL-3.0-or-later"
 contains_live_card_data = false
-sanitization = "not-applicable"
+sanitisation = "not-applicable"
 ```
 
 Use ISO 8601 dates for retrieval and creation dates when a date is needed.
@@ -37,10 +37,10 @@ Use a stable fixture identifier in file names and metadata.
 
 For generated fixtures, record the generator or procedure and its inputs.
 For imported fixtures, record the upstream project, URL, revision, version, and retrieval date.
-Record the source analyzer version for analyzer fixtures.
+Record the source analyser version for analyser fixtures.
 Preserve source notices and attribution in [`NOTICE.md`](../../NOTICE.md).
 
-Expected documents and traces must identify the analyzer and source exchange that produced them.
+Expected documents and traces must identify the analyser and source exchange that produced them.
 Do not infer provenance from a filename alone.
 
 ## Sensitive-data rules
@@ -51,12 +51,12 @@ Do not add live card captures merely because they appear anonymous.
 Prefer generated values and synthetic card identities.
 
 A fixture derived from live data requires an explicit privacy review.
-Its metadata must set `contains_live_card_data = true` and describe the sanitization method.
+Its metadata must set `contains_live_card_data = true` and describe the sanitisation method.
 Approval must establish that publication is permitted.
 When this cannot be established, replace the fixture with synthetic data.
 
-Sanitization is not guaranteed to remove every card-specific secret.
-Do not use sanitized fixtures as a substitute for source authorization.
+Sanitisation is not guaranteed to remove every card-specific secret.
+Do not use sanitised fixtures as a substitute for source authorisation.
 
 Raw local captures must stay outside version control unless they satisfy this policy.
 Use an explicit export destination.
@@ -68,6 +68,6 @@ Before adding a fixture:
 
 1. Confirm that the data is synthetic or approved for publication.
 2. Confirm that all metadata fields are accurate.
-3. Confirm that provenance and analyzer versions are recorded.
+3. Confirm that provenance and analyser versions are recorded.
 4. Confirm that required notices and licenses are present.
 5. Run the offline tests without hardware or external network access.

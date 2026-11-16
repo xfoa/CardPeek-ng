@@ -2,25 +2,25 @@
 
 ## Product scope
 
-CardPeek NG will provide:
+CardPeek-NG will provide:
 
 - A reusable Rust engine.
 - A command-line application.
 - A Dioxus desktop application.
 - PC/SC reader access.
 - APDU transmission and inspection.
-- A native Lua API for CardPeek NG analyzers.
-- A UI-independent result document with versioned JSON serialization.
+- A Lua API for CardPeek-NG analysers.
+- A UI-independent result document with versioned JSON serialisation.
 - Native JSON trace recording and replay.
 
 The first release will not provide:
 
 - USB serial reader support.
-- Automatic analyzer updates.
+- Automatic analyser updates.
 - Telemetry.
 - An interactive Lua REPL.
 - A security sandbox for Lua scripts.
-- Compatibility with legacy CardPeek Lua analyzers.
+- Compatibility with CardPeek Lua analysers.
 - Compatibility with legacy CardPeek XML documents and trace captures.
 
 ## Approved decisions
@@ -28,11 +28,11 @@ The first release will not provide:
 - Use a Rust workspace with separate core, transport, runtime, application, and frontend crates.
 - Use the pcsc crate for native PC/SC integration.
 - Use mlua with vendored Lua 5.4.
-- Define a native Lua API without legacy compatibility shims.
-- Give every analyzer run a fresh Lua state and result document.
+- Define a Lua API without CardPeek compatibility shims.
+- Give every analyser run a fresh Lua state and result document.
 - Treat Lua scripts as trusted code.
 - Use versioned native JSON schemas for documents and traces.
-- Use GPL-3.0-or-later for CardPeek NG and its bundled analyzers.
+- Use GPL-3.0-or-later for CardPeek-NG and its bundled analysers.
 - Preserve all required third-party notices and attribution.
 - Exclude automatic updates and telemetry from the first release.
 
@@ -52,7 +52,7 @@ Do not treat research versions as permanent dependency pins.
 9. Use an interaction broker for prompts and file selection.
 10. Make replay a first-class transport and test oracle.
 11. Treat card data, raw APDU logs, and traces as sensitive by default.
-12. Do not execute analyzer scripts during analyzer discovery.
+12. Do not execute analyser scripts during analyser discovery.
 
 ## Module relationships
 
@@ -60,7 +60,7 @@ Do not treat research versions as permanent dependency pins.
 flowchart LR
     CLI --> App[Application engine]
     Desktop[Dioxus desktop] --> App
-    App --> Analyzer[Analyzer contract]
+    App --> Analyser[Analyser contract]
     App --> Transport[Transport contract]
     App --> Worker[Dedicated session worker]
     Worker --> Lua[Lua runtime]

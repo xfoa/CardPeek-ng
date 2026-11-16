@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-replay"
-description = "Native trace recording and replay for CardPeek NG"
+description = "Native trace recording and replay for CardPeek-NG"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
