@@ -532,7 +532,7 @@
               <option>EMV</option>
               <option>Calypso</option>
             </select>
-            <p class="field-note">ATR analyzer 1.0<br>Trusted legacy analyzer</p>
+            <p class="field-note">ATR analyzer 1.0<br>Trusted native analyzer</p>
             <button class="button button-primary button-wide" type="button" data-run>Run analyzer</button>
             <div style="margin-top:14px">
               <div class="progress-track"><div class="progress-bar" data-progress-bar></div></div>
@@ -666,7 +666,7 @@
             <div><dt>Reader</dt><dd>Replay: ATR sample</dd></div>
             <div><dt>Session</dt><dd><span class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span></span></dd></div>
             <div><dt>Analyzer</dt><dd>ATR analysis 1.0</dd></div>
-            <div><dt>Script trust</dt><dd>Trusted legacy code</dd></div>
+            <div><dt>Script trust</dt><dd>Trusted native code</dd></div>
           </dl>
         </section>
         <section class="workflow-side-section">
@@ -736,7 +736,7 @@
               <dt><span class="term" tabindex="0" data-term="mime">MIME type</span></dt><dd class="mono">application/octet-stream</dd>
               <dt>Source</dt><dd><span class="term" tabindex="0" data-term="cold-reset">Cold reset</span> record 001</dd>
             </dl>
-            <div class="notice notice-safe" style="margin-top:24px"><span aria-hidden="true">i</span><div><strong>Native byte string</strong>The value retains its exact bit width. Legacy prefixes appear only during XML or Lua conversion.</div></div>
+            <div class="notice notice-safe" style="margin-top:24px"><span aria-hidden="true">i</span><div><strong>Native byte string</strong>The value retains its exact bit width.</div></div>
           </div>
         </section>
         <aside class="pane run-summary">
@@ -772,8 +772,8 @@
         <span class="section-label">Content and format</span>
         <div class="option-list">
           <label class="radio-option"><input type="radio" name="export-type" value="json" checked><span><strong>Result document - JSON</strong><small>Versioned native schema with stable node IDs.</small></span></label>
-          <label class="radio-option"><input type="radio" name="export-type" value="xml"><span><strong>Result document - Legacy XML</strong><small>CardPeek-compatible document structure.</small></span></label>
-          <label class="radio-option"><input type="radio" name="export-type" value="sanitized"><span><strong>Trace - Sanitized export</strong><small>Redacted for sharing. Redaction cannot remove every secret.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="trace"><span><strong>Trace - Native JSON</strong><small>Versioned native schema with exact APDU exchanges.</small></span></label>
+          <label class="radio-option"><input type="radio" name="export-type" value="sanitized"><span><strong>Trace - Sanitized JSON export</strong><small>Redacted for sharing. Redaction cannot remove every secret.</small></span></label>
           <label class="radio-option"><input type="radio" name="export-type" value="raw"><span><strong>Trace - Raw capture</strong><small>Faithful replay with sensitive APDU data.</small></span></label>
         </div>
         <div class="notice notice-danger" id="raw-warning" hidden><span aria-hidden="true">!</span><div><strong>Sensitive file</strong>Store this raw trace securely. Do not share live card secrets.</div></div>
@@ -945,8 +945,8 @@
       document.querySelectorAll("[data-open-apdu]").forEach(button => button.addEventListener("click", () => document.getElementById("apdu-dialog").showModal()));
       document.querySelectorAll('input[name="export-type"]').forEach(input => input.addEventListener("change", () => {
         document.getElementById("raw-warning").hidden = input.value !== "raw" || !input.checked;
-        const extension = input.value === "xml" ? "xml" : input.value === "json" ? "json" : "trace";
-        const base = input.value === "json" || input.value === "xml" ? "atr-result" : "atr-capture";
+        const extension = "json";
+        const base = input.value === "json" ? "atr-result" : "atr-capture";
         document.getElementById("export-destination").value = "Documents/" + base + "." + extension;
       }));
       document.getElementById("export-form").addEventListener("submit", event => {

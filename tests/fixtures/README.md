@@ -1,13 +1,13 @@
 # Test fixture policy
 
-Fixtures support offline tests and compatibility comparisons.
+Fixtures support offline tests and native format conformance checks.
 They must be deterministic, versioned, and safe to publish.
 Hardware access must never be required to read or use them.
 
 ## Directory layout
 
-- `traces/` contains legacy-compatible trace captures.
-- `documents/` contains native JSON and legacy XML documents.
+- `traces/` contains versioned native JSON trace captures.
+- `documents/` contains versioned native JSON documents.
 - `analyzers/` contains analyzer scripts and resources used by tests.
 
 Each fixture or fixture set must have an adjacent metadata file.
@@ -37,7 +37,7 @@ Use a stable fixture identifier in file names and metadata.
 
 For generated fixtures, record the generator or procedure and its inputs.
 For imported fixtures, record the upstream project, URL, revision, version, and retrieval date.
-Record the source analyzer version for compatibility fixtures.
+Record the source analyzer version for analyzer fixtures.
 Preserve source notices and attribution in [`NOTICE.md`](../../NOTICE.md).
 
 Expected documents and traces must identify the analyzer and source exchange that produced them.

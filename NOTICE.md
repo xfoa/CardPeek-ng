@@ -23,13 +23,12 @@ If not, see <https://www.gnu.org/licenses/>.
 
 The full license is in [`LICENSE`](LICENSE).
 
-## Legacy CardPeek material
+## Third-party CardPeek material
 
-The approved architecture permits distribution of trusted legacy CardPeek analyzers
-under GPL-3.0-or-later.
-No legacy analyzer, legacy source file, or captured legacy notice is included yet.
+CardPeek NG does not support legacy CardPeek Lua analyzers, XML documents, or trace captures.
+No legacy analyzer, legacy source file, or captured legacy notice is included.
 
-Before importing any legacy material:
+Before importing any third-party CardPeek material:
 
 1. Record the upstream project and exact source location.
 2. Record the upstream revision or release and retrieval date.
@@ -39,6 +38,7 @@ Before importing any legacy material:
 6. Mark modifications and their dates when required.
 7. Add third-party license texts required for distribution.
 8. Update this notice file and the relevant package documentation.
+9. Write new analyzers against the native CardPeek NG Lua API.
 
 Do not remove or replace upstream notices.
 Do not imply endorsement by upstream authors.

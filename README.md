@@ -2,22 +2,33 @@
 
 CardPeek NG is a tool for reading and analysing smart cards, inspired by [CardPeek](https://github.com/l1l1/cardpeek).
 It will provide a reusable engine, a command-line application, and a desktop application.
-It will support PC/SC readers and replay of legacy CardPeek traces.
+It will support PC/SC readers, native Lua analyzers, and replay of native CardPeek NG JSON traces.
+It will not provide compatibility with legacy CardPeek Lua analyzers, XML documents, or trace captures.
 
 The application core is written in Rust, and the UI uses Dioxus.
-The implementation is at the workspace baseline stage.
-The crates do not yet provide reader, analyzer, or document functionality.
+Milestones 1 and 2 are implemented.
+The workspace includes core domain types, versioned JSON documents and traces, and trace replay.
+Reader access, analyzer execution, and user interfaces remain in development.
 
 ## Build and test
 
-Nothing to build and test yet. :)
+Install Rust 1.100 or a compatible newer toolchain.
+Run the local checks from the workspace root:
 
-The default test suite must not require a card reader.
+```sh
+cargo fmt --all -- --check
+cargo check --workspace --all-targets
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo doc --workspace --no-deps
+```
+
+The default test suite uses synthetic fixtures and does not require a card reader.
 Hardware tests will be separate and opt-in.
 
 ## Security and licensing
 
-Legacy analyzers are trusted code.
+Lua analyzers are trusted code.
 They are not sandboxed.
 Card data, APDU logs, and raw traces are sensitive by default.
 

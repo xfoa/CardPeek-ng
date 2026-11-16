@@ -1,5 +1,5 @@
 /target/
 *.log
-*.raw.trace
-*.sensitive.trace
+*.raw.trace.json
+*.sensitive.trace.json
 .DS_Store

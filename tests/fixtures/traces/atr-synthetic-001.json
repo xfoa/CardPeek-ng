@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "kind": "reset",
+      "id": "record-0001",
+      "mode": "cold",
+      "atr": {
+        "width": 8,
+        "elements": [
+          59,
+          0
+        ]
+      }
+    },
+    {
+      "kind": "command",
+      "id": "record-0002",
+      "command": [
+        0,
+        164,
+        4,
+        0,
+        2,
+        160,
+        0
+      ],
+      "response": {
+        "data": [
+          1
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "kind": "command",
+      "id": "record-0003",
+      "command": [
+        0,
+        192,
+        0,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          2,
+          3
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "kind": "reset",
+      "id": "record-0004",
+      "mode": "warm",
+      "atr": {
+        "width": 8,
+        "elements": [
+          59,
+          1
+        ]
+      }
+    },
+    {
+      "kind": "command",
+      "id": "record-0005",
+      "command": [
+        0,
+        164,
+        4,
+        0,
+        2,
+        160,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      }
+    }
+  ]
+}

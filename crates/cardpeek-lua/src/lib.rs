@@ -1,1 +1,1 @@
-//! Legacy Lua analyzer execution and compatibility APIs.
+//! Native Lua analyzer execution and `CardPeek` NG APIs.

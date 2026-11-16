@@ -1,11 +1,15 @@
 [package]
 name = "cardpeek-replay"
-description = "Legacy trace recording and replay for CardPeek NG"
+description = "Native trace recording and replay for CardPeek NG"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[dependencies]
+cardpeek-core = { path = "../cardpeek-core" }
+thiserror.workspace = true
 
 [lints]
 workspace = true
