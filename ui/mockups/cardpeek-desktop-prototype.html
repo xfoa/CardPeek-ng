@@ -57,6 +57,32 @@
     }
     .skip-link:focus { top: 12px; }
 
+    .term {
+      text-decoration: underline dotted;
+      text-decoration-color: #79918f;
+      text-underline-offset: 3px;
+      cursor: help;
+    }
+    .app-header .term, .workflow-rail .term { text-decoration-color: #7da9a4; }
+    .term:focus-visible { outline: 2px solid #55ab9d; outline-offset: 3px; border-radius: 2px; }
+    .term-tooltip {
+      position: fixed;
+      z-index: 100;
+      width: max-content;
+      max-width: min(320px, calc(100vw - 24px));
+      padding: 10px 12px;
+      border: 1px solid #49656a;
+      border-radius: 6px;
+      color: #f5faf9;
+      background: #14282d;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.5;
+      white-space: normal;
+      pointer-events: none;
+    }
+
     .app-header {
       height: 66px;
       display: flex;
@@ -461,8 +487,8 @@
       </div>
     </div>
     <div class="header-session">
-      <span class="badge badge-replay">Replay session</span>
-      <span>Synthetic ATR fixture</span>
+      <span class="badge badge-replay term" tabindex="0" data-term="replay">Replay session</span>
+      <span>Synthetic <span class="term" tabindex="0" data-term="atr">ATR</span> fixture</span>
       <span class="badge badge-local">Local only</span>
     </div>
     <div class="header-actions">
@@ -488,10 +514,11 @@
               <option>Replay: ATR sample</option>
               <option>PC/SC: No hardware in mockup</option>
             </select>
+            <p class="field-note">Hardware readers use <span class="term" tabindex="0" data-term="pcsc">PC/SC</span>. This mockup uses replay.</p>
             <div class="status-line small" style="margin-top:12px">
               <span class="status-dot" data-connection-dot></span>
               <strong data-connection-status>Connected</strong>
-              <span class="muted">T=1</span>
+              <span class="muted term" tabindex="0" data-term="t1">T=1</span>
             </div>
             <div class="setup-actions">
               <button class="button" type="button" data-connect>Disconnect</button>
@@ -533,7 +560,7 @@
 
       <div class="inspector-workspace">
         <div class="workspace-heading">
-          <div><h1>Analysis result</h1><p>Document rev. 4 / Stable node IDs / Synthetic data</p></div>
+          <div><h1>Analysis result</h1><p>Document <span class="term" tabindex="0" data-term="revision">rev. 4</span> / Stable <span class="term" tabindex="0" data-term="node-id">node IDs</span> / Synthetic data</p></div>
           <div class="search-wrap">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
             <input class="text-input search-input" type="search" placeholder="Search labels and values" aria-label="Search result tree" data-result-search>
@@ -572,8 +599,8 @@
                 <dt>Value</dt><dd><code class="code-value" data-detail-value>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></dd>
                 <dt>Class</dt><dd class="mono" data-detail-class>atr</dd>
                 <dt>Size</dt><dd data-detail-size>152 bits</dd>
-                <dt>Node ID</dt><dd class="mono" data-detail-node>node-0002</dd>
-                <dt>MIME type</dt><dd class="mono">application/octet-stream</dd>
+                <dt><span class="term" tabindex="0" data-term="node-id">Node ID</span></dt><dd class="mono" data-detail-node>node-0002</dd>
+                <dt><span class="term" tabindex="0" data-term="mime">MIME type</span></dt><dd class="mono">application/octet-stream</dd>
               </dl>
             </div>
           </section>
@@ -587,7 +614,7 @@
               <li><span class="log-time">14:32:09</span><span class="log-level">INFO</span><span>Analyzer completed; document revision 4 published</span></li>
             </ul>
             <div class="activity-summary">
-              <div class="metric-line"><strong>24</strong><span>APDU exchanges</span></div>
+              <div class="metric-line"><strong>24</strong><span><span class="term" tabindex="0" data-term="apdu">APDU</span> exchanges</span></div>
               <div class="progress-meta"><span>Duration 1.24 s</span><span>0 warnings</span></div>
               <button class="button" type="button" data-open-apdu>View exchanges</button>
             </div>
@@ -611,8 +638,8 @@
       <div class="workflow-main pane">
         <section class="workflow-hero">
           <p class="eyebrow">Analysis complete</p>
-          <h2>ATR result is ready</h2>
-          <p>The replay analyzer decoded 19 bytes and published 8 result nodes. This workflow uses synthetic data and no hardware.</p>
+          <h2><span class="term" tabindex="0" data-term="atr">ATR</span> result is ready</h2>
+          <p>The <span class="term" tabindex="0" data-term="replay">replay</span> analyzer decoded 19 bytes and published 8 result nodes. This workflow uses synthetic data and no hardware.</p>
           <div class="run-panel">
             <div class="run-panel-top">
               <div><div class="status-line"><span class="status-dot" data-connection-dot></span><h3 data-run-status>Complete</h3></div><p class="field-note">24 exchanges / 1.24 seconds / 0 warnings</p></div>
@@ -666,9 +693,9 @@
 
     <section class="variant results-view" data-variant-panel="C" aria-label="Results workbench layout">
       <div class="session-strip">
-        <div class="session-item"><span class="section-label" style="margin:0">Reader</span><strong>Replay: ATR sample</strong></div>
-        <div class="session-item"><span class="section-label" style="margin:0">Connection</span><strong class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span> / T=1</strong></div>
-        <div class="session-item"><span class="section-label" style="margin:0">Analyzer</span><strong>ATR analysis 1.0</strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Reader</span><strong><span class="term" tabindex="0" data-term="replay">Replay</span>: <span class="term" tabindex="0" data-term="atr">ATR</span> sample</strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Connection</span><strong class="status-line"><span class="status-dot" data-connection-dot></span><span data-connection-status>Connected</span> / <span class="term" tabindex="0" data-term="t1">T=1</span></strong></div>
+        <div class="session-item"><span class="section-label" style="margin:0">Analyzer</span><strong><span class="term" tabindex="0" data-term="atr">ATR</span> analysis 1.0</strong></div>
         <div class="run-actions"><button class="button" type="button" data-cancel disabled>Cancel</button><button class="button button-primary" type="button" data-run>Run again</button></div>
       </div>
       <div class="results-workbench">
@@ -700,21 +727,21 @@
             <p class="eyebrow">Selected node</p>
             <h1 data-detail-label>Answer to Reset</h1>
             <span class="muted small mono" data-detail-id>node-0002</span>
-            <div class="document-meta"><span class="meta-chip">Document doc-atr-01</span><span class="meta-chip">Revision 4</span><span class="meta-chip">Run run-003</span></div>
+            <div class="document-meta"><span class="meta-chip">Document doc-atr-01</span><span class="meta-chip term" tabindex="0" data-term="revision">Revision 4</span><span class="meta-chip term" tabindex="0" data-term="run-id">Run run-003</span></div>
             <dl class="detail-grid">
               <dt>Decoded value</dt><dd><code class="code-value" data-detail-value>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></dd>
               <dt>Class</dt><dd class="mono" data-detail-class>atr</dd>
               <dt>Exact size</dt><dd data-detail-size>152 bits</dd>
-              <dt>Node ID</dt><dd class="mono" data-detail-node>node-0002</dd>
-              <dt>MIME type</dt><dd class="mono">application/octet-stream</dd>
-              <dt>Source</dt><dd>Cold reset record 001</dd>
+              <dt><span class="term" tabindex="0" data-term="node-id">Node ID</span></dt><dd class="mono" data-detail-node>node-0002</dd>
+              <dt><span class="term" tabindex="0" data-term="mime">MIME type</span></dt><dd class="mono">application/octet-stream</dd>
+              <dt>Source</dt><dd><span class="term" tabindex="0" data-term="cold-reset">Cold reset</span> record 001</dd>
             </dl>
             <div class="notice notice-safe" style="margin-top:24px"><span aria-hidden="true">i</span><div><strong>Native byte string</strong>The value retains its exact bit width. Legacy prefixes appear only during XML or Lua conversion.</div></div>
           </div>
         </section>
         <aside class="pane run-summary">
           <div class="summary-block"><h3>Run status</h3><div class="status-line"><span class="status-dot" data-connection-dot></span><strong data-run-status>Complete</strong></div><div class="progress-track" style="margin-top:14px"><div class="progress-bar" data-progress-bar></div></div><div class="progress-meta"><span>1.24 s</span><span data-progress-label>100%</span></div></div>
-          <div class="summary-block"><h3>Run summary</h3><div class="metric-line"><strong>8</strong><span>result nodes</span></div><div class="metric-line" style="margin-top:16px"><strong>24</strong><span>APDU exchanges</span></div><div class="metric-line" style="margin-top:16px"><strong>0</strong><span>warnings</span></div></div>
+          <div class="summary-block"><h3>Run summary</h3><div class="metric-line"><strong>8</strong><span>result nodes</span></div><div class="metric-line" style="margin-top:16px"><strong>24</strong><span><span class="term" tabindex="0" data-term="apdu">APDU</span> exchanges</span></div><div class="metric-line" style="margin-top:16px"><strong>0</strong><span>warnings</span></div></div>
           <div class="summary-block"><button class="button button-wide" type="button" data-open-apdu>Inspect APDUs</button><button class="button button-quiet button-wide" type="button" data-clear-log>Clear activity log</button></div>
         </aside>
       </div>
@@ -758,7 +785,7 @@
   </dialog>
 
   <dialog id="apdu-dialog" aria-labelledby="apdu-title">
-    <div class="dialog-header"><div><h2 id="apdu-title">APDU exchanges</h2><p>24 exchanges / Replay transport / Synthetic records</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
+    <div class="dialog-header"><div><h2 id="apdu-title"><span class="term" tabindex="0" data-term="apdu">APDU</span> exchanges</h2><p>24 exchanges / <span class="term" tabindex="0" data-term="replay">Replay</span> transport / Synthetic records</p></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">x</button></div>
     <div class="dialog-body">
       <div class="apdu-row"><span class="apdu-direction">TX</span><span class="muted small">Record 001 / Cold reset</span><code>RESET</code></div>
       <div class="apdu-row"><span class="apdu-direction">RX</span><span class="muted small">ATR / 19 bytes</span><code>3B 8F 80 01 80 31 B8 64 85 03 00 42 00 00 00 00 90 00 71</code></div>
@@ -770,6 +797,7 @@
   </dialog>
 
   <div class="toast" role="status" aria-live="polite" id="toast"></div>
+  <div class="term-tooltip" id="term-tooltip" role="tooltip" hidden></div>
 
   <script>
     (() => {
@@ -781,6 +809,51 @@
       let currentVariant = 0;
       let runTimer = null;
       let toastTimer = null;
+      let activeTerm = null;
+
+      const glossary = {
+        atr: "Answer to Reset. The card sends this data after a reset. It describes communication parameters and card information.",
+        apdu: "Application Protocol Data Unit. A command sent to a smart card or a response returned by the card.",
+        pcsc: "Personal Computer/Smart Card. The standard operating-system interface for communication with smart-card readers.",
+        mime: "Multipurpose Internet Mail Extensions. A MIME type identifies the value format. For example, application/octet-stream identifies binary data.",
+        "node-id": "A stable identifier for a result node within one analyzer run. It identifies the same node across document updates.",
+        t1: "T=1 is an ISO 7816 block-oriented transmission protocol used between a reader and a smart card.",
+        replay: "A transport that reproduces recorded card exchanges. It lets you test analyzers without a physical reader or card.",
+        revision: "A result-document version number. The application increments it when an analyzer publishes an updated document.",
+        "run-id": "A unique identifier for one analyzer execution.",
+        "cold-reset": "A reset that restores card power before communication starts. A warm reset keeps card power on."
+      };
+      const termTooltip = document.getElementById("term-tooltip");
+      const hideTermTooltip = () => {
+        termTooltip.hidden = true;
+        if (activeTerm) activeTerm.removeAttribute("aria-describedby");
+        activeTerm = null;
+        document.body.appendChild(termTooltip);
+      };
+      const showTermTooltip = term => {
+        if (activeTerm && activeTerm !== term) activeTerm.removeAttribute("aria-describedby");
+        activeTerm = term;
+        const dialog = term.closest("dialog[open]");
+        (dialog || document.body).appendChild(termTooltip);
+        termTooltip.textContent = glossary[term.dataset.term];
+        termTooltip.hidden = false;
+        term.setAttribute("aria-describedby", "term-tooltip");
+        const rect = term.getBoundingClientRect();
+        const tip = termTooltip.getBoundingClientRect();
+        const left = Math.max(12, Math.min(rect.left, window.innerWidth - tip.width - 12));
+        const above = rect.top - tip.height - 10;
+        const top = above >= 12 ? above : Math.min(rect.bottom + 10, window.innerHeight - tip.height - 12);
+        termTooltip.style.left = left + "px";
+        termTooltip.style.top = Math.max(12, top) + "px";
+      };
+      document.querySelectorAll("[data-term]").forEach(term => {
+        term.addEventListener("mouseenter", () => showTermTooltip(term));
+        term.addEventListener("mouseleave", hideTermTooltip);
+        term.addEventListener("focus", () => showTermTooltip(term));
+        term.addEventListener("blur", hideTermTooltip);
+      });
+      window.addEventListener("resize", hideTermTooltip);
+      window.addEventListener("scroll", hideTermTooltip, true);
 
       const toast = message => {
         const element = document.getElementById("toast");
@@ -835,6 +908,7 @@
       document.querySelector("[data-previous]").addEventListener("click", () => switchVariant(currentVariant - 1));
       document.querySelector("[data-next]").addEventListener("click", () => switchVariant(currentVariant + 1));
       document.addEventListener("keydown", event => {
+        if (event.key === "Escape") hideTermTooltip();
         if (event.target.matches("input, textarea, select, [contenteditable]") || document.querySelector("dialog[open]")) return;
         if (event.key === "ArrowLeft") switchVariant(currentVariant - 1);
         if (event.key === "ArrowRight") switchVariant(currentVariant + 1);
