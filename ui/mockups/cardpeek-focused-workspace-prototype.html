@@ -123,7 +123,6 @@
     .rail .nav-button span { display: none; }
     .rail .nav-button .icon { width: 20px; height: 20px; }
     .rail .nav-number { display: none; }
-    .rail-bottom { margin-top: auto; margin-bottom: 88px; color: #78979b; writing-mode: vertical-rl; font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; }
     .shell-c .page { padding: 25px 32px; }
     .shell-c .page-head { padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
     .reader-grid { max-width: 1060px; display: grid; grid-template-columns: minmax(280px, .85fr) minmax(370px, 1.15fr); gap: 20px; margin: 0 auto; }
@@ -301,7 +300,6 @@
       .nav-button.active { box-shadow: inset 0 -2px #8cd3c3; }
       .nav-button .nav-number { display: none; }
       .rail { flex-direction: row; justify-content: center; padding: 7px; }
-      .rail-bottom { display: none; }
       .rail .nav-button { min-height: 38px; }
       .page, .shell-c .page { padding: 19px 16px; }
       .page-head { flex-direction: column; margin-bottom: 16px; }
@@ -518,7 +516,7 @@
       const content = () => state.screen === "reader" ? readerPage() : state.screen === "workbench" ? workbenchPage() : settingsPage();
       const shell = () => {
         if (state.variant === 1) return `${header()}<main class="main shell-b" id="main">${content()}</main>`;
-        if (state.variant === 2) return `${header()}<div class="shell-c"><nav class="rail" aria-label="Main screens">${screens.map(screen => navButton(screen, true)).join("")}<span class="rail-bottom">Workspace</span></nav><main class="main" id="main">${content()}</main></div>`;
+        if (state.variant === 2) return `${header()}<div class="shell-c"><nav class="rail" aria-label="Main screens">${screens.map(screen => navButton(screen, true)).join("")}</nav><main class="main" id="main">${content()}</main></div>`;
         return `${header()}<div class="shell-a ${state.sidebarCollapsed ? "sidebar-collapsed" : ""}"><aside class="sidebar"><div class="sidebar-top"><span class="nav-label" style="padding:0">Workspace</span><button class="sidebar-toggle" type="button" data-toggle-sidebar aria-label="${state.sidebarCollapsed ? "Show" : "Hide"} sidebar" aria-expanded="${!state.sidebarCollapsed}" title="${state.sidebarCollapsed ? "Show" : "Hide"} sidebar">${icon("chevron")}</button></div><nav class="nav-list" aria-label="Main screens">${screens.map(screen => navButton(screen)).join("")}</nav><div class="sidebar-card"><span class="caps">Current input</span><strong>${escapeHtml(contextLabel())}</strong><span>${state.source === "replay" ? "Recorded trace" : "Native PC/SC"} / Local only</span></div></aside><main class="main" id="main">${content()}</main></div>`;
       };
       const render = (focus = null) => {
