@@ -16,6 +16,8 @@ jobs:
     name: Check, test, lint, and documentation
     runs-on: ubuntu-latest
     steps:
+      - name: Install PC/SC development files
+        run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev pkg-config
       - name: Check out source
         uses: actions/checkout@v4
       - name: Install Rust

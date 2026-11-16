@@ -6,13 +6,15 @@ It will support PC/SC readers, native Lua analyzers, and replay of native CardPe
 It will not provide compatibility with legacy CardPeek Lua analyzers, XML documents, or trace captures.
 
 The application core is written in Rust, and the UI uses Dioxus.
-Milestones 1 and 2 are implemented.
-The workspace includes core domain types, versioned JSON documents and traces, and trace replay.
-Reader access, analyzer execution, and user interfaces remain in development.
+Milestones 1, 2, and 3 are implemented.
+The workspace includes core domain types, versioned JSON documents and traces, trace replay, and native PC/SC transport.
+Analyzer execution and user interfaces remain in development.
 
 ## Build and test
 
 Install Rust 1.100 or a compatible newer toolchain.
+Install the PC/SC development files required by the `pcsc` crate.
+On Debian or Ubuntu, install `libpcsclite-dev` and `pkg-config`.
 Run the local checks from the workspace root:
 
 ```sh
@@ -24,7 +26,8 @@ cargo doc --workspace --no-deps
 ```
 
 The default test suite uses synthetic fixtures and does not require a card reader.
-Hardware tests will be separate and opt-in.
+PC/SC hardware tests are separate and opt-in.
+See [`docs/hardware-tests.md`](docs/hardware-tests.md).
 
 ## Security and licensing
 
