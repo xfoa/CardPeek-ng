@@ -1,0 +1,11 @@
+[package]
+name = "cardpeek-app"
+description = "Application orchestration for CardPeek NG"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

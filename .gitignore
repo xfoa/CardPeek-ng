@@ -1,0 +1,5 @@
+/target/
+*.log
+*.raw.trace
+*.sensitive.trace
+.DS_Store
