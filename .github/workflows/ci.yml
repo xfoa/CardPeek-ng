@@ -49,4 +49,4 @@ jobs:
       - name: Install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command-arguments: check --all-features
+          arguments: --all-features
