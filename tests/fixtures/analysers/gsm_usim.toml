@@ -1,0 +1,14 @@
+schema_version = 1
+fixture_id = "gsm-usim-001"
+description = "Read-only CardPeek-NG GSM SIM and USIM filesystem analyser"
+origin = "derived"
+created_by = "CardPeek-NG contributors"
+source_project = "CardPeek-NG temporary development tree"
+source_url = ""
+source_revision = ""
+source_version = "1.0.0"
+retrieved_at = ""
+license = "GPL-3.0-or-later"
+contains_live_card_data = false
+sanitisation = "not-applicable"
+procedure = "Converted from temp/cardpeek/dot_cardpeek_dir/scripts/gsm_usim.lua; removed authentication and card lifecycle APIs; uses gsm-usim-synthetic-001.json"

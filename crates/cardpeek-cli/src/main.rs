@@ -96,10 +96,30 @@ fn run(arguments: Arguments) -> Result<()> {
 }
 
 fn discover(root: &Path) -> Result<()> {
-    for analyser in cardpeek_app::discover(root).map_err(cardpeek_app::AppError::from)? {
+    let analysers = cardpeek_app::discover(root).map_err(cardpeek_app::AppError::from)?;
+    let id_width = ["ID".len()]
+        .into_iter()
+        .chain(analysers.iter().map(|a| a.id.len()))
+        .max()
+        .unwrap_or(0);
+    let version_width = ["VERSION".len()]
+        .into_iter()
+        .chain(analysers.iter().map(|a| a.version.len()))
+        .max()
+        .unwrap_or(0);
+    let title_width = ["TITLE".len()]
+        .into_iter()
+        .chain(analysers.iter().map(|a| a.title.len()))
+        .max()
+        .unwrap_or(0);
+    println!(
+        "{:<id_width$}  {:<version_width$}  {:<title_width$}  DESCRIPTION",
+        "ID", "VERSION", "TITLE"
+    );
+    for analyser in analysers {
         println!(
-            "{}\t{}\t{}\t{}",
-            analyser.id, analyser.version, analyser.title, analyser.description
+            "{:<id_width$}  {:<version_width$}  {:<title_width$}  {}",
+            analyser.id, analyser.version, analyser.title, analyser.description,
         );
     }
     Ok(())

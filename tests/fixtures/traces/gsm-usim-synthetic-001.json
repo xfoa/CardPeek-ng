@@ -1,0 +1,1653 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "kind": "reset",
+      "mode": "cold",
+      "atr": {
+        "width": 8,
+        "elements": [
+          59,
+          143,
+          128
+        ]
+      },
+      "id": "gsm-reset"
+    },
+    {
+      "id": "gsm-select-a0",
+      "kind": "command",
+      "command": [
+        160,
+        164,
+        0,
+        0,
+        2,
+        63,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          3,
+          131,
+          2,
+          63,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "id": "gsm-select-mf",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        63,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          3,
+          131,
+          2,
+          63,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        47,
+        0,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "gsm-select-dir"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        47,
+        5,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          2,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          47,
+          5
+        ],
+        "status": 36864
+      },
+      "id": "gsm-select-languages"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        2
+      ],
+      "response": {
+        "data": [
+          101,
+          110
+        ],
+        "status": 36864
+      },
+      "id": "gsm-read-languages"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        47,
+        6,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "gsm-select-arr"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        47,
+        226,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          10,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          47,
+          226
+        ],
+        "status": 36864
+      },
+      "id": "gsm-select-iccid"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        10
+      ],
+      "response": {
+        "data": [
+          152,
+          16,
+          50,
+          84,
+          118,
+          144,
+          16,
+          50,
+          84,
+          118
+        ],
+        "status": 36864
+      },
+      "id": "gsm-read-iccid"
+    },
+    {
+      "id": "gsm-select-telecom",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        127,
+        16,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      }
+    },
+    {
+      "id": "gsm-restore-mf-after-telecom",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        63,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          3,
+          131,
+          2,
+          63,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "id": "gsm-select-gsm-df",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        127,
+        32,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      }
+    },
+    {
+      "id": "gsm-restore-mf-after-gsm",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        63,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          3,
+          131,
+          2,
+          63,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "id": "gsm-probe-gsm-df",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        127,
+        32,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      }
+    },
+    {
+      "id": "gsm-reselect-mf",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        63,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          3,
+          131,
+          2,
+          63,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "id": "gsm-select-usim",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        4,
+        0,
+        16,
+        160,
+        0,
+        0,
+        0,
+        135,
+        16,
+        2,
+        255,
+        255,
+        255,
+        255,
+        137,
+        7,
+        9,
+        0,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          111,
+          18,
+          132,
+          16,
+          160,
+          0,
+          0,
+          0,
+          135,
+          16,
+          2,
+          255,
+          255,
+          255,
+          255,
+          137,
+          7,
+          9,
+          0,
+          0
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        5,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          2,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          5
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-li"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        2
+      ],
+      "response": {
+        "data": [
+          101,
+          110
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-li"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        6,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27010
+      },
+      "id": "usim-select-arr"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        7,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          9,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          7
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-imsi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        9
+      ],
+      "response": {
+        "data": [
+          8,
+          9,
+          16,
+          16,
+          32,
+          84,
+          118,
+          144,
+          255
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-imsi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        8,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          32,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          8
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-keys"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        9,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ps-keys"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        44,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-dck"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        49,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-hpplmn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        55,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-acm-max"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        56,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          2,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          56
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-ust"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        2
+      ],
+      "response": {
+        "data": [
+          242,
+          0
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-ust"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        57,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-acm"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        59,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-fdn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        60,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          15,
+          128,
+          2,
+          22,
+          26,
+          130,
+          5,
+          2,
+          0,
+          0,
+          22,
+          1,
+          131,
+          2,
+          111,
+          60
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-sms"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        178,
+        1,
+        4,
+        22
+      ],
+      "response": {
+        "data": [
+          1,
+          0,
+          4,
+          4,
+          145,
+          17,
+          34,
+          0,
+          0,
+          98,
+          17,
+          97,
+          33,
+          67,
+          101,
+          128,
+          5,
+          200,
+          50,
+          155,
+          253,
+          6
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-sms"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        62,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-gid1"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        63,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-gid2"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        64,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-msisdn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        65,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-puct"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        66,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-smsp"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        67,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-smss"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        69,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-cbmi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        70,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          6,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          70
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-spn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        6
+      ],
+      "response": {
+        "data": [
+          0,
+          84,
+          101,
+          115,
+          116,
+          33
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-spn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        71,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-smsr"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        72,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-cbmir"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        73,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-sdn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        75,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ext2"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        76,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ext3"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        77,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-bdn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        78,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ext5"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        79,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ccp2"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        96,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-plmn-user"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        97,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-plmn-operator"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        98,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-plmn-hplmn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        115,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-psloci"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        120,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-acc"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        123,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-fplmn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        126,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-loci"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        173,
+        0
+      ],
+      "response": {
+        "data": [
+          98,
+          11,
+          128,
+          2,
+          0,
+          4,
+          130,
+          2,
+          1,
+          0,
+          131,
+          2,
+          111,
+          173
+        ],
+        "status": 36864
+      },
+      "id": "usim-select-ad"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        176,
+        0,
+        0,
+        4
+      ],
+      "response": {
+        "data": [
+          0,
+          0,
+          0,
+          2
+        ],
+        "status": 36864
+      },
+      "id": "usim-read-ad"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        183,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ecc"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        197,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-pnn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        198,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-opl"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        199,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-mbdn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        201,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-mbi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        202,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-mwis"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        203,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-cfis"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        205,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-spdi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        217,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ehplmn"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        219,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-ehplmnpi"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        227,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-epsloci"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        228,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-epsnsc"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        2,
+        0,
+        2,
+        111,
+        232,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-nasconfig"
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        95,
+        58,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-phonebook"
+    },
+    {
+      "id": "usim-restore-after-phonebook",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        4,
+        0,
+        16,
+        160,
+        0,
+        0,
+        0,
+        135,
+        16,
+        2,
+        255,
+        255,
+        255,
+        255,
+        137,
+        7,
+        9,
+        0,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          97,
+          10,
+          79,
+          8,
+          160,
+          0,
+          0,
+          0,
+          135,
+          16,
+          2,
+          255
+        ],
+        "status": 36864
+      }
+    },
+    {
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        0,
+        0,
+        2,
+        95,
+        192,
+        0
+      ],
+      "response": {
+        "data": [],
+        "status": 27266
+      },
+      "id": "usim-select-5gs"
+    },
+    {
+      "id": "usim-restore-after-5gs",
+      "kind": "command",
+      "command": [
+        0,
+        164,
+        4,
+        0,
+        16,
+        160,
+        0,
+        0,
+        0,
+        135,
+        16,
+        2,
+        255,
+        255,
+        255,
+        255,
+        137,
+        7,
+        9,
+        0,
+        0,
+        0
+      ],
+      "response": {
+        "data": [
+          97,
+          10,
+          79,
+          8,
+          160,
+          0,
+          0,
+          0,
+          135,
+          16,
+          2,
+          255
+        ],
+        "status": 36864
+      }
+    }
+  ]
+}

@@ -30,6 +30,22 @@ cargo run -p cardpeek-cli -- replay \
 ```
 
 The export must match `tests/fixtures/documents/atr-synthetic-001.json`.
+
+Run the GSM SIM and USIM analyser against its synthetic trace:
+
+```sh
+cargo run -p cardpeek-cli -- replay \
+  tests/fixtures/traces/gsm-usim-synthetic-001.json \
+  tests/fixtures/analysers \
+  gsm-usim \
+  --output /tmp/gsm-usim-result.json
+```
+
+The analyser selects supported files and decodes transparent files and records.
+It never authenticates, changes card security state, or reads sensitive key files.
+Access-denied files are reported without a PIN prompt.
+Its export must match `tests/fixtures/documents/gsm-usim-synthetic-001.json`.
+
 Analyser scripts are trusted code.
 They are not sandboxed.
 

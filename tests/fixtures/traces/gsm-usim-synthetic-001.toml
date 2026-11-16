@@ -1,0 +1,15 @@
+schema_version = 1
+fixture_id = "gsm-usim-synthetic-001"
+description = "Synthetic GSM and USIM selection, transparent-file, SMS, access-error, and sensitive-file replay"
+origin = "synthetic"
+created_by = "CardPeek-NG contributors"
+generator = "Hand-authored APDUs and standards-based synthetic file contents"
+source_analyser = "gsm-usim"
+source_project = ""
+source_url = ""
+source_revision = ""
+source_version = "1.0.0"
+retrieved_at = ""
+license = "GPL-3.0-or-later"
+contains_live_card_data = false
+sanitisation = "not-applicable"
