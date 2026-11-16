@@ -38,3 +38,7 @@ Card data, APDU logs, and raw traces are sensitive by default.
 CardPeek NG is licensed under GPL-3.0-or-later.
 See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).
 Fixture rules are in [`tests/fixtures/README.md`](tests/fixtures/README.md).
+
+---
+
+[![CI](https://github.com/xfoa/CardPeek-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/xfoa/CardPeek-ng/actions/workflows/ci.yml)
