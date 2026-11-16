@@ -15,6 +15,13 @@ version = "0.1.0"
 [[package]]
 name = "cardpeek-app"
 version = "0.1.0"
+dependencies = [
+ "cardpeek-core",
+ "cardpeek-replay",
+ "cardpeek-transport",
+ "serde",
+ "thiserror",
+]
 
 [[package]]
 name = "cardpeek-cli"

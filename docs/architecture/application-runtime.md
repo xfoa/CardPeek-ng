@@ -34,8 +34,12 @@ Every interaction has a unique request identifier.
 Only the matching response can complete that interaction.
 
 Channels are bounded.
-The application defines overflow behavior for logs and document notifications.
-Completion, failure, and interaction messages must not be silently discarded.
+A full command channel rejects new commands without blocking the caller.
+A full event channel drops logs and counts them.
+Document and progress notifications are coalesced and counted.
+Critical events can remove droppable events or wait for capacity.
+Queue closure wakes waiting producers and receivers.
+Completion, failure, and interaction messages are not silently discarded while a subscription is open.
 
 ## Worker and cancellation model
 
@@ -52,9 +56,15 @@ Cancellation is cooperative.
 - A Lua instruction hook checks cancellation during script execution.
 - Interaction waits check cancellation.
 - PC/SC cancellation uses a separate control context where supported.
+- Native exchanges are recorded before a cancellation result is reported.
+- Ordinary command cancellation does not disconnect the session.
 - Disconnect and worker cleanup have defined behavior after cancellation.
+- Each operation reaches at most one terminal state.
 
 The application does not force-kill the worker thread.
+Shutdown closes subscriptions before joining workers.
+This wakes blocked event producers.
+Native session cleanup finishes before the disconnected event and trace snapshot are published.
 
 ## Interaction model
 

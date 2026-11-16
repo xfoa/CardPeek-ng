@@ -7,5 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+cardpeek-core = { path = "../cardpeek-core" }
+cardpeek-transport = { path = "../cardpeek-transport" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+cardpeek-replay = { path = "../cardpeek-replay" }
+
 [lints]
 workspace = true

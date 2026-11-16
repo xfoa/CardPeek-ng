@@ -6,8 +6,9 @@ It will support PC/SC readers, native Lua analyzers, and replay of native CardPe
 It will not provide compatibility with legacy CardPeek Lua analyzers, XML documents, or trace captures.
 
 The application core is written in Rust, and the UI uses Dioxus.
-Milestones 1, 2, and 3 are implemented.
+Milestones 1, 2, 3, and 4 are implemented.
 The workspace includes core domain types, versioned JSON documents and traces, trace replay, and native PC/SC transport.
+The application engine provides bounded command and event channels, dedicated session workers, interaction correlation, deterministic cancellation, and native JSON exports.
 Analyzer execution and user interfaces remain in development.
 
 ## Build and test
