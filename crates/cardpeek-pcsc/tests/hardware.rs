@@ -1,8 +1,12 @@
 //! Opt-in integration tests for real PC/SC readers and test cards.
 
-use std::{ffi::CString, thread, time::Duration};
+use std::{ffi::CString, path::PathBuf, thread, time::Duration};
 
-use cardpeek_core::{ByteString, Protocol, ResetMode};
+use cardpeek_app::{
+    Application, CommandKind, ConnectRequest, EventKind, ExportTrace, OperationId, OperationStatus,
+    PcscBackend, TraceExportMode,
+};
+use cardpeek_core::{ByteString, Protocol, ResetMode, TransportKind};
 use cardpeek_pcsc::{ConnectionMode, PcscContext, PcscErrorKind};
 use cardpeek_transport::CardSession;
 
@@ -82,4 +86,87 @@ fn cancels_card_wait_and_cleans_up() {
     cancellation.cancel().unwrap();
     let error = worker.join().unwrap().unwrap_err();
     assert_eq!(error.kind(), &PcscErrorKind::Cancelled);
+}
+
+fn wait_terminal(
+    events: &cardpeek_app::EventSubscription,
+    operation: &OperationId,
+) -> OperationStatus {
+    loop {
+        let event = events
+            .recv_timeout(Duration::from_secs(30))
+            .expect("application terminal event");
+        match event.kind {
+            EventKind::OperationCompleted { operation: id } if id == *operation => {
+                return OperationStatus::Completed;
+            }
+            EventKind::OperationCancelled { operation: id } if id == *operation => {
+                return OperationStatus::Cancelled;
+            }
+            EventKind::OperationFailed { operation: id, .. } if id == *operation => {
+                return OperationStatus::Failed;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a PC/SC reader, a disposable card, and CARDPEEK_PCSC_READER"]
+fn application_runs_analyser_and_exports_raw_and_sanitised_traces() {
+    let reader = required_env("CARDPEEK_PCSC_READER");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../analysers");
+    let output = std::env::temp_dir().join(format!("cardpeek-hardware-{}", std::process::id()));
+    std::fs::create_dir_all(&output).unwrap();
+    let app = Application::with_defaults(PcscBackend::establish().unwrap());
+    let events = app.subscribe();
+    let discovery = app.submit(CommandKind::DiscoverAnalysers(root)).unwrap();
+    assert_eq!(
+        wait_terminal(&events, &discovery),
+        OperationStatus::Completed
+    );
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            reader,
+            TransportKind::Pcsc,
+        )))
+        .unwrap();
+    assert_eq!(wait_terminal(&events, &session), OperationStatus::Completed);
+    let run = app
+        .submit(CommandKind::RunAnalyser(cardpeek_app::RunAnalyserRequest {
+            analyser: "atr".into(),
+            run_id: cardpeek_core::RunId::new("hardware-atr").unwrap(),
+            document_id: cardpeek_core::DocumentId::new("hardware-atr").unwrap(),
+        }))
+        .unwrap();
+    assert_eq!(wait_terminal(&events, &run), OperationStatus::Completed);
+    app.export_document_now(&cardpeek_app::ExportDocument {
+        run_id: cardpeek_core::RunId::new("hardware-atr").unwrap(),
+        destination: output.join("result.json"),
+    })
+    .unwrap();
+    let disconnect = app.submit(CommandKind::Disconnect).unwrap();
+    assert_eq!(
+        wait_terminal(&events, &disconnect),
+        OperationStatus::Completed
+    );
+    for (mode, name) in [
+        (TraceExportMode::Raw, "raw.json"),
+        (TraceExportMode::Sanitised, "sanitised.json"),
+    ] {
+        app.export_trace_now(&ExportTrace {
+            session: session.clone(),
+            mode,
+            destination: output.join(name),
+        })
+        .unwrap();
+    }
+    assert_eq!(
+        cardpeek_core::TraceDocument::load(output.join("raw.json"))
+            .unwrap()
+            .sanitised(),
+        cardpeek_core::TraceDocument::load(output.join("sanitised.json")).unwrap()
+    );
+    app.shutdown().unwrap();
+    std::fs::remove_dir_all(output).unwrap();
 }

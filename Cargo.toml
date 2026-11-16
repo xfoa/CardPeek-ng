@@ -21,6 +21,7 @@ publish = false
 
 [workspace.dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
+directories = "6.0.0"
 dioxus = { version = "0.7.3", features = ["native"] }
 mlua = { version = "0.11.4", features = ["lua54", "vendored", "serialize"] }
 pcsc = "2.9.0"

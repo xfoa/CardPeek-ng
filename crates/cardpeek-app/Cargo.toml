@@ -11,6 +11,7 @@ publish.workspace = true
 cardpeek-analyser = { path = "../cardpeek-analyser" }
 cardpeek-core = { path = "../cardpeek-core" }
 cardpeek-lua = { path = "../cardpeek-lua" }
+cardpeek-pcsc = { path = "../cardpeek-pcsc" }
 cardpeek-transport = { path = "../cardpeek-transport" }
 serde.workspace = true
 thiserror.workspace = true

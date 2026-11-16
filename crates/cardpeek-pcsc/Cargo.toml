@@ -13,5 +13,8 @@ cardpeek-transport = { path = "../cardpeek-transport" }
 pcsc.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+cardpeek-app = { path = "../cardpeek-app" }
+
 [lints]
 workspace = true

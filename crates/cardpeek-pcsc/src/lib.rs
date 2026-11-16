@@ -120,7 +120,9 @@ pub struct PcscError {
 }
 
 impl PcscError {
-    fn new(operation: PcscOperation, kind: PcscErrorKind) -> Self {
+    /// Creates an error with a semantic category and no native source.
+    #[must_use]
+    pub const fn new(operation: PcscOperation, kind: PcscErrorKind) -> Self {
         Self {
             operation,
             kind,
@@ -264,6 +266,17 @@ impl PcscContext {
         Context::establish(Scope::User)
             .map(|context| Self { context })
             .map_err(|error| PcscError::native(PcscOperation::EstablishContext, error))
+    }
+
+    /// Interrupts blocking operations on this context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when native cancellation fails.
+    pub fn cancel(&self) -> Result<(), PcscError> {
+        self.context
+            .cancel()
+            .map_err(|error| PcscError::native(PcscOperation::Cancel, error))
     }
 
     /// Creates a cancellation handle for reader waits on this context.

@@ -2,17 +2,19 @@
 
 use std::rc::Rc;
 
-use cardpeek_app::{AnswerInteraction, InteractionKind, InteractionResponse, Progress};
+use cardpeek_app::{
+    AnswerInteraction, InteractionKind, InteractionResponse, Progress, TraceExportMode,
+};
 use cardpeek_core::ResultNode;
 use dioxus::prelude::*;
 
-use crate::ReplayBackend;
+use crate::DesktopBackend;
 use crate::controller::Controller;
 use crate::state::{DesktopState, ExportKind, node_value};
 
 const CSS: &str = include_str!("../assets/desktop.css");
 
-pub type DesktopController = Rc<Controller<ReplayBackend>>;
+pub type DesktopController = Rc<Controller<DesktopBackend>>;
 
 #[component]
 pub fn App(controller: DesktopController) -> Element {
@@ -39,7 +41,12 @@ pub fn App(controller: DesktopController) -> Element {
     let reader_name = snapshot
         .selected_reader
         .clone()
-        .unwrap_or_else(|| "No replay reader".into());
+        .unwrap_or_else(|| "No reader".into());
+    let replay = snapshot
+        .readers
+        .iter()
+        .find(|reader| Some(&reader.name) == snapshot.selected_reader.as_ref())
+        .is_none_or(|reader| reader.transport == cardpeek_core::TransportKind::Replay);
     let protocol = snapshot
         .session
         .as_ref()
@@ -48,6 +55,17 @@ pub fn App(controller: DesktopController) -> Element {
             cardpeek_core::Protocol::T1 => "T=1",
             cardpeek_core::Protocol::Other => "Other",
         });
+    let transport_badge = if replay {
+        "badge badge-replay"
+    } else {
+        "badge badge-local"
+    };
+    let transport_label = if replay {
+        "Replay session"
+    } else {
+        "PC/SC session"
+    };
+    let setup_label = if replay { "Replay" } else { "PC/SC" };
     let document_meta = snapshot.document.as_ref().map_or_else(
         || "No result document".into(),
         |document| {
@@ -70,16 +88,17 @@ pub fn App(controller: DesktopController) -> Element {
                 div { class: "brand-mark", aria_hidden: "true" }
                 div {
                     div { class: "brand-name", "CardPeek " span { "NG" } }
-                    span { class: "prototype-tag", "Replay inspector" }
+                    span { class: "prototype-tag", "Smart-card inspector" }
                 }
             }
             div { class: "header-session",
-                span { class: "badge badge-replay", "Replay session" }
+                span { class: "{transport_badge}", "{transport_label}" }
                 span { "{reader_name}" }
                 span { class: "badge badge-local", "Local only" }
             }
             div { class: "header-actions",
                 button { class: "button button-dark-ghost", onclick: move |_| state.write().show_apdus = true, "Inspect APDUs" }
+                button { class: "button button-dark-ghost", onclick: move |_| state.write().show_transmit = true, "Send APDU" }
                 button {
                     class: "button button-dark-ghost",
                     onclick: move |_| open_export(&mut state.write(), ExportKind::Document),
@@ -89,7 +108,7 @@ pub fn App(controller: DesktopController) -> Element {
         }
         main { class: "inspector",
             aside { class: "pane setup-pane",
-                div { class: "pane-header", h2 { class: "pane-title", "Session setup" } span { class: "badge badge-replay", "Replay" } }
+                div { class: "pane-header", h2 { class: "pane-title", "Session setup" } span { class: "{transport_badge}", "{setup_label}" } }
                 div { class: "setup-body",
                     section { class: "setup-section",
                         label { class: "section-label", r#for: "reader", "Card reader" }
@@ -100,7 +119,7 @@ pub fn App(controller: DesktopController) -> Element {
                                 option { value: "{reader.name}", selected: state.read().selected_reader.as_ref() == Some(&reader.name), "{reader.name}" }
                             }
                         }
-                        p { class: "field-note", "Recorded exchanges run without a physical card or reader." }
+                        p { class: "field-note", "Choose a native PC/SC reader or the recorded replay source." }
                         div { class: "status-line small", margin_top: "12px",
                             span { class: if connected { "status-dot" } else { "status-dot offline" } }
                             strong { if connected { "Connected" } else { "Disconnected" } }
@@ -122,13 +141,44 @@ pub fn App(controller: DesktopController) -> Element {
                         }
                     }
                     section { class: "setup-section",
-                        label { class: "section-label", r#for: "analyser", "Analyser" }
+                        label { class: "section-label", r#for: "analyser-directory", "Analyser library" }
+                        input {
+                            class: "text-input", id: "analyser-directory",
+                            value: "{state.read().analyser_directory}",
+                            readonly: true,
+                        }
+                        div { class: "setup-actions", margin_top: "8px",
+                            button {
+                                class: "button", disabled: running,
+                                onclick: {
+                                    let controller = controller.clone();
+                                    move |_| controller.select_analyser_files()
+                                },
+                                "Import Lua files"
+                            }
+                            button {
+                                class: "button", disabled: running || state.read().selected_analyser.is_none(),
+                                onclick: {
+                                    let controller = controller.clone();
+                                    move |_| controller.remove_analyser(&mut state.write())
+                                },
+                                "Remove selected"
+                            }
+                        }
+                        p { class: "field-note", "Import one or more Lua analysers into this user library. Import only trusted scripts." }
+                        label { class: "section-label", r#for: "analyser", margin_top: "14px", "Analyser" }
                         select {
-                            class: "select", id: "analyser", disabled: running,
+                            class: "select", id: "analyser", disabled: running || state.read().analysers.is_empty(),
                             onchange: move |event| state.write().selected_analyser = Some(event.value()),
+                            if state.read().analysers.is_empty() {
+                                option { value: "", "No analysers found" }
+                            }
                             for analyser in state.read().analysers.clone() {
                                 option { value: "{analyser.id}", selected: state.read().selected_analyser.as_ref() == Some(&analyser.id), "{analyser.title}" }
                             }
+                        }
+                        if state.read().analysers.is_empty() {
+                            p { class: "field-note", "Import Lua analysers to make them available here and in the CLI." }
                         }
                         if let Some(analyser) = state.read().analysers.iter().find(|analyser| Some(&analyser.id) == state.read().selected_analyser.as_ref()).cloned() {
                             p { class: "field-note", "{analyser.title} {analyser.version}" br {} "{analyser.description}" }
@@ -208,6 +258,9 @@ pub fn App(controller: DesktopController) -> Element {
         }
         if state.read().show_apdus {
             ApduDialog { state }
+        }
+        if state.read().show_transmit {
+            TransmitDialog { state, controller: controller.clone() }
         }
         if state.read().show_export {
             ExportDialog { state, controller: controller.clone() }
@@ -320,7 +373,7 @@ fn NodeDetails(state: Signal<DesktopState>) -> Element {
 #[component]
 fn ApduDialog(state: Signal<DesktopState>) -> Element {
     rsx! {
-        DialogFrame { title: "APDU exchanges", subtitle: "Exact replay command and response records", wide: true, onclose: move |()| state.write().show_apdus = false,
+        DialogFrame { title: "APDU exchanges", subtitle: "Exact session command and response records", wide: true, onclose: move |()| state.write().show_apdus = false,
             div { class: "dialog-body",
                 if state.read().exchanges.is_empty() {
                     div { class: "empty-state", "No APDU commands were exchanged in this run." }
@@ -346,6 +399,28 @@ fn ApduDialog(state: Signal<DesktopState>) -> Element {
 }
 
 #[component]
+fn TransmitDialog(state: Signal<DesktopState>, controller: DesktopController) -> Element {
+    rsx! {
+        DialogFrame { title: "Transmit APDU", subtitle: "Send exact command bytes through the active session.", wide: false, onclose: move |()| state.write().show_transmit = false,
+            div { class: "dialog-body",
+                label { class: "section-label", r#for: "apdu-command", "Hexadecimal command" }
+                input { class: "text-input mono", id: "apdu-command", value: "{state.read().apdu_command}", oninput: move |event| state.write().apdu_command = event.value() }
+                p { class: "field-note", "No implicit retries or GET RESPONSE commands are issued." }
+            }
+            div { class: "dialog-footer",
+                button { class: "button", onclick: move |_| state.write().show_transmit = false, "Cancel" }
+                button { class: "button button-primary", disabled: !state.read().connected(), onclick: move |_| {
+                    let command = { state.read().apdu_command.clone() };
+                    controller.transmit(&command, &mut state.write());
+                    state.write().show_transmit = false;
+                    state.write().show_apdus = true;
+                }, "Transmit" }
+            }
+        }
+    }
+}
+
+#[component]
 fn ExportDialog(state: Signal<DesktopState>, controller: DesktopController) -> Element {
     rsx! {
         DialogFrame { title: "Export analysis", subtitle: "Choose an explicit local destination.", wide: false, onclose: move |()| state.write().show_export = false,
@@ -357,12 +432,20 @@ fn ExportDialog(state: Signal<DesktopState>, controller: DesktopController) -> E
                         span { strong { "Result document - JSON" } small { "Versioned native schema with stable node IDs." } }
                     }
                     label { class: "radio-option",
-                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Trace, onchange: move |_| open_export(&mut state.write(), ExportKind::Trace) }
+                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Trace, onchange: move |_| { let mut state = state.write(); state.trace_export_mode = TraceExportMode::Raw; open_export(&mut state, ExportKind::Trace); } }
                         span { strong { "Trace - Raw native JSON" } small { "Faithful replay with sensitive APDU data. Disconnect before export." } }
+                    }
+                    label { class: "radio-option",
+                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Trace && state.read().trace_export_mode == TraceExportMode::Sanitised, onchange: move |_| { let mut state = state.write(); state.trace_export_mode = TraceExportMode::Sanitised; open_export(&mut state, ExportKind::Trace); } }
+                        span { strong { "Trace - Sanitised JSON" } small { "Redacted for sharing. Redaction cannot remove every secret." } }
                     }
                 }
                 if state.read().export_kind == ExportKind::Trace {
-                    div { class: "notice notice-danger", strong { "Sensitive file" } "Store this raw trace securely. Redaction is not applied." }
+                    if state.read().trace_export_mode == TraceExportMode::Raw {
+                        div { class: "notice notice-danger", strong { "Sensitive file" } "Store this raw trace securely. Redaction is not applied." }
+                    } else {
+                        div { class: "notice", strong { "Redaction is limited" } "Review the sanitised file before sharing it." }
+                    }
                 }
                 label { class: "section-label", r#for: "destination", "Destination" }
                 div { class: "destination",

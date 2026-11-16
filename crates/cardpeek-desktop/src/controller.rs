@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
+use cardpeek_analyser::AnalyserLibrary;
 use cardpeek_app::{
     Application, CommandKind, ConnectRequest, ExportDocument, ExportTrace, RunAnalyserRequest,
     SessionBackend,
@@ -21,10 +22,12 @@ pub enum UiMessage {
     Export(Result<ExportNotice, String>),
     ExportDestination(PathBuf),
     InteractionFile(PathBuf),
+    AnalyserChanged(Result<Vec<String>, String>),
 }
 
 pub struct Controller<B: SessionBackend> {
     application: Arc<Application<B>>,
+    analyser_library: AnalyserLibrary,
     messages: Receiver<UiMessage>,
     pending_message: RefCell<Option<UiMessage>>,
     sender: Sender<UiMessage>,
@@ -37,7 +40,7 @@ impl<B: SessionBackend> PartialEq for Controller<B> {
 }
 
 impl<B: SessionBackend> Controller<B> {
-    pub fn new(backend: B, analyser_root: PathBuf) -> Self {
+    pub fn new(backend: B, analyser_library: AnalyserLibrary) -> Self {
         let application = Arc::new(Application::with_defaults(backend));
         let subscription = application.subscribe();
         let (sender, messages) = mpsc::channel();
@@ -51,12 +54,13 @@ impl<B: SessionBackend> Controller<B> {
         });
         let controller = Self {
             application,
+            analyser_library,
             messages,
             pending_message: RefCell::new(None),
             sender,
         };
         let _ = controller.submit(CommandKind::EnumerateReaders);
-        let _ = controller.submit(CommandKind::DiscoverAnalysers(analyser_root));
+        controller.refresh_analysers();
         controller
     }
 
@@ -78,7 +82,9 @@ impl<B: SessionBackend> Controller<B> {
         for message in pending.into_iter().chain(self.messages.try_iter()) {
             match message {
                 UiMessage::Event(event) => state.apply_event(event),
-                UiMessage::Error(error) | UiMessage::Export(Err(error)) => {
+                UiMessage::Error(error)
+                | UiMessage::Export(Err(error))
+                | UiMessage::AnalyserChanged(Err(error)) => {
                     state.errors.push(error.clone());
                     state.notice = Some(error);
                 }
@@ -89,20 +95,35 @@ impl<B: SessionBackend> Controller<B> {
                 UiMessage::InteractionFile(path) => {
                     state.interaction_file = Some(path);
                 }
+                UiMessage::AnalyserChanged(Ok(imported)) => {
+                    state.notice = Some(if imported.is_empty() {
+                        "Analyser library updated.".into()
+                    } else {
+                        format!("Imported {}.", imported.join(", "))
+                    });
+                    self.refresh_analysers();
+                }
             }
         }
         state.session = self.application.session();
         state.readers = self.application.readers();
+        if state.analyser_directory.is_empty() {
+            state.analyser_directory = self.analyser_library.root().display().to_string();
+        }
         if state.selected_reader.is_none() {
             state.selected_reader = state.readers.first().map(|reader| reader.name.clone());
         }
         let analysers = self.application.analysers();
         if state.analysers != analysers {
             state.analysers = analysers;
-            if state.selected_analyser.is_none() {
-                state.selected_analyser =
-                    state.analysers.first().map(|analyser| analyser.id.clone());
-            }
+        }
+        if state.selected_analyser.as_ref().is_none_or(|selected| {
+            !state
+                .analysers
+                .iter()
+                .any(|analyser| &analyser.id == selected)
+        }) {
+            state.selected_analyser = state.analysers.first().map(|analyser| analyser.id.clone());
         }
         if let Some(run_id) = state.run_id.clone()
             && let Some(document) = self.application.document_snapshot(&run_id)
@@ -124,7 +145,12 @@ impl<B: SessionBackend> Controller<B> {
 
     pub fn connect(&self, reader: String, state: &mut DesktopState) {
         state.session = None;
-        let request = ConnectRequest::new(reader, TransportKind::Replay);
+        let transport = state
+            .readers
+            .iter()
+            .find(|candidate| candidate.name == reader)
+            .map_or(TransportKind::Replay, |reader| reader.transport);
+        let request = ConnectRequest::new(reader, transport);
         if let Some(operation) = self.submit(CommandKind::Connect(request)) {
             state
                 .pending
@@ -145,6 +171,27 @@ impl<B: SessionBackend> Controller<B> {
             state
                 .pending
                 .insert(operation, cardpeek_app::OperationKind::Reset);
+        }
+    }
+
+    pub fn transmit(&self, command: &str, state: &mut DesktopState) {
+        let parsed = cardpeek_core::ByteString::from_hex(8, command)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                bytes
+                    .as_bytes()
+                    .map(<[u8]>::to_vec)
+                    .ok_or_else(|| "The command must contain complete bytes.".into())
+            });
+        match parsed {
+            Ok(command) => {
+                if let Some(operation) = self.submit(CommandKind::Transmit(command)) {
+                    state
+                        .pending
+                        .insert(operation, cardpeek_app::OperationKind::Transmit);
+                }
+            }
+            Err(error) => state.notice = Some(format!("Invalid APDU: {error}")),
         }
     }
 
@@ -193,6 +240,45 @@ impl<B: SessionBackend> Controller<B> {
         self.select_file(FileRequest::Interaction { must_exist });
     }
 
+    pub fn select_analyser_files(&self) {
+        let sender = self.sender.clone();
+        let library = self.analyser_library.clone();
+        spawn_task("cardpeek-desktop-analyser-picker", move || {
+            let paths = rfd::FileDialog::new()
+                .add_filter("Lua analysers", &["lua"])
+                .pick_files();
+            if let Some(paths) = paths {
+                let result = library
+                    .import_files(paths.iter().map(PathBuf::as_path))
+                    .map(|imported| imported.into_iter().map(|analyser| analyser.id).collect())
+                    .map_err(|error| error.to_string());
+                let _ = sender.send(UiMessage::AnalyserChanged(result));
+            }
+        });
+    }
+
+    pub fn remove_analyser(&self, state: &mut DesktopState) {
+        let Some(analyser) = state.selected_analyser.clone() else {
+            state.notice = Some("Select an analyser to remove.".into());
+            return;
+        };
+        let sender = self.sender.clone();
+        let library = self.analyser_library.clone();
+        spawn_task("cardpeek-desktop-analyser-removal", move || {
+            let result = library
+                .remove(&analyser)
+                .map(|removed| vec![format!("Removed {}", removed.id)])
+                .map_err(|error| error.to_string());
+            let _ = sender.send(UiMessage::AnalyserChanged(result));
+        });
+    }
+
+    fn refresh_analysers(&self) {
+        let _ = self.submit(CommandKind::DiscoverAnalysers(
+            self.analyser_library.root().to_path_buf(),
+        ));
+    }
+
     fn select_file(&self, request: FileRequest) {
         let sender = self.sender.clone();
         spawn_task("cardpeek-desktop-file-dialog", move || {
@@ -226,17 +312,13 @@ impl<B: SessionBackend> Controller<B> {
                     destination: destination.clone(),
                 })
             }),
-            ExportKind::Trace => self
-                .application
-                .operations()
-                .into_iter()
-                .find(|operation| operation.kind == cardpeek_app::OperationKind::Connect)
-                .map(|operation| {
-                    ExportRequest::Trace(ExportTrace {
-                        session: operation.id,
-                        destination: destination.clone(),
-                    })
-                }),
+            ExportKind::Trace => state.last_session.clone().map(|session| {
+                ExportRequest::Trace(ExportTrace {
+                    session,
+                    mode: state.trace_export_mode,
+                    destination: destination.clone(),
+                })
+            }),
         };
         let Some(request) = request else {
             state.notice = Some("The selected export is not available.".into());

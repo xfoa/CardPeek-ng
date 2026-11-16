@@ -1,5 +1,9 @@
 //! Analyser metadata, discovery, and execution contracts.
 
+mod library;
+
+pub use library::{AnalyserLibrary, LibraryError};
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

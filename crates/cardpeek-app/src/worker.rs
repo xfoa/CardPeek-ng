@@ -16,7 +16,8 @@ use crate::state::SharedState;
 use crate::sync::{CancellationToken, CommandQueue, EventQueue, lock_unpoisoned};
 use crate::{
     AnalyserContext, AppError, CommandKind, ConnectRequest, Event, EventKind, LogLevel,
-    OperationId, OperationStatus, Result, SessionState, emit_to, is_cancellation, transport_error,
+    OperationId, OperationStatus, Result, SessionState, TraceExportMode, emit_to, is_cancellation,
+    transport_error,
 };
 
 /// Factory for reader discovery and owned card sessions.
@@ -522,6 +523,14 @@ pub(crate) fn export_document(document: &ResultDocument, path: PathBuf) -> Resul
     std::fs::write(path, json).map_err(AppError::Io)
 }
 
-pub(crate) fn export_trace(trace: &TraceDocument, path: PathBuf) -> Result<()> {
+pub(crate) fn export_trace(
+    trace: &TraceDocument,
+    mode: TraceExportMode,
+    path: PathBuf,
+) -> Result<()> {
+    let trace = match mode {
+        TraceExportMode::Raw => trace.clone(),
+        TraceExportMode::Sanitised => trace.sanitised(),
+    };
     trace.save(path).map_err(AppError::Core)
 }

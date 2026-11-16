@@ -4,6 +4,7 @@
 
 ```text
 Cargo.toml
+analysers/
 crates/
   cardpeek-core/
   cardpeek-transport/
@@ -90,11 +91,19 @@ This crate defines:
 
 - Analyser metadata.
 - Static analyser discovery.
+- A platform-specific user analyser library.
+- Validated analyser import and removal.
 - Analyser execution requests.
 - Analyser execution results.
 - A runtime-independent execution contract.
 
 Discovery parses supported metadata headers without executing Lua.
+The CLI and desktop share the same persistent user analyser directory.
+The build script embeds every Lua file directly inside the root `analysers` directory.
+First-time library creation installs these embedded analysers.
+Existing libraries are not reseeded after removal.
+Imports reject duplicate identifiers and existing destination files before copying starts.
+Removal uses a discovered analyser identifier rather than an arbitrary path.
 
 ## cardpeek-lua
 

@@ -9,7 +9,7 @@ use cardpeek_app::{
     AnswerInteraction, AppError, Application, CancellationToken, CommandId, CommandKind,
     ConnectRequest, EngineConfig, EventKind, ExportDocument, ExportTrace, InteractionId,
     InteractionKind, InteractionResponse, LogLevel, OperationId, OperationStatus, SessionBackend,
-    transport_error,
+    TraceExportMode, transport_error,
 };
 use cardpeek_core::{
     ApduResponse, Atr, DocumentId, NodeId, ResetMode, ResultDocument, ResultNode, RunId,
@@ -324,6 +324,7 @@ fn replay_session_serialises_commands_and_exports_trace() {
     let destination = temporary_path("trace");
     app.export_trace_now(&ExportTrace {
         session: session.clone(),
+        mode: TraceExportMode::Raw,
         destination: destination.clone(),
     })
     .unwrap();
@@ -531,6 +532,38 @@ fn cancellation_interrupts_native_wait_and_cleans_up() {
 }
 
 #[test]
+fn sanitised_trace_export_removes_card_values() {
+    let app = application(EngineConfig::default());
+    let (session, events) = connect(&app);
+    let operation = app
+        .submit(CommandKind::Transmit(vec![
+            0x00, 0xa4, 0x04, 0x00, 0x02, 0xa0, 0x00,
+        ]))
+        .unwrap();
+    wait_for_terminal(&events, &operation);
+    let disconnect = app.submit(CommandKind::Disconnect).unwrap();
+    wait_for_terminal(&events, &disconnect);
+    let destination = temporary_path("sanitised-trace");
+    app.export_trace_now(&ExportTrace {
+        session,
+        mode: TraceExportMode::Sanitised,
+        destination: destination.clone(),
+    })
+    .unwrap();
+    let trace = TraceDocument::load(&destination).unwrap();
+    assert!(trace.records.iter().all(|record| match record {
+        cardpeek_core::TraceRecord::Reset { atr, .. } => atr.as_bytes().is_empty(),
+        cardpeek_core::TraceRecord::Command {
+            command, response, ..
+        } => {
+            command.len() <= 4 && response.data.is_empty()
+        }
+    }));
+    let _ = std::fs::remove_file(destination);
+    app.shutdown().unwrap();
+}
+
+#[test]
 fn invalid_apdu_and_unavailable_trace_are_structured_failures() {
     let app = application(EngineConfig::default());
     let (session, events) = connect(&app);
@@ -543,6 +576,7 @@ fn invalid_apdu_and_unavailable_trace_are_structured_failures() {
     assert!(matches!(
         app.export_trace_now(&ExportTrace {
             session,
+            mode: TraceExportMode::Raw,
             destination: PathBuf::from("unused"),
         }),
         Err(AppError::TraceUnavailable)

@@ -278,11 +278,23 @@ pub struct ExportDocument {
     pub destination: PathBuf,
 }
 
-/// Raw trace export parameters.
+/// Trace export privacy mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TraceExportMode {
+    /// Preserve exact commands, responses, and ATR values for replay.
+    #[default]
+    Raw,
+    /// Replace command data, response data, and ATR values with placeholders.
+    Sanitised,
+}
+
+/// Trace export parameters.
 #[derive(Clone, Debug)]
 pub struct ExportTrace {
-    /// Operation that established the disconnected session.
+    /// Operation that established the session.
     pub session: OperationId,
+    /// Privacy mode.
+    pub mode: TraceExportMode,
     /// Explicit destination path.
     pub destination: PathBuf,
 }

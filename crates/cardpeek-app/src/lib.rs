@@ -1,5 +1,6 @@
 //! Commands, events, session workers, and application state.
 
+mod backend;
 mod interaction;
 mod state;
 mod sync;
@@ -13,6 +14,7 @@ use std::time::Duration;
 
 use cardpeek_core::{ReaderInfo, ResultDocument, RunId, TraceDocument};
 
+pub use backend::PcscBackend;
 pub use cardpeek_analyser::{AnalyserMetadata, discover};
 pub use interaction::AnalyserContext;
 use state::SharedState;
@@ -171,6 +173,14 @@ impl<B: SessionBackend> Application<B> {
         lock_unpoisoned(&self.session_traces).get(session).cloned()
     }
 
+    /// Returns the latest trace for the active session.
+    #[must_use]
+    pub fn active_trace_snapshot(&self) -> Option<Arc<TraceDocument>> {
+        self.shared
+            .session()
+            .and_then(|session| self.trace_snapshot(&session.id))
+    }
+
     /// Writes a document to an explicit native JSON destination.
     ///
     /// # Errors
@@ -193,7 +203,7 @@ impl<B: SessionBackend> Application<B> {
         let trace = self
             .trace_snapshot(&export.session)
             .ok_or(AppError::TraceUnavailable)?;
-        worker::export_trace(&trace, export.destination.clone())
+        worker::export_trace(&trace, export.mode, export.destination.clone())
     }
 
     /// Requests cooperative cancellation and native interruption where supported.
@@ -448,7 +458,9 @@ impl<B: SessionBackend> Dispatcher<B> {
                     .get(&export.session)
                     .cloned()
                     .ok_or(AppError::TraceUnavailable)
-                    .and_then(|trace| worker::export_trace(&trace, export.destination));
+                    .and_then(|trace| {
+                        worker::export_trace(&trace, export.mode, export.destination)
+                    });
                 self.finish_result(&operation, result);
             }
             CommandKind::Shutdown => {

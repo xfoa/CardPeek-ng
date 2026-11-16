@@ -3,13 +3,14 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cardpeek_analyser::AnalyserLibrary;
 use cardpeek_app::{
     AnswerInteraction, EventKind, InteractionId, InteractionKind, InteractionRequest,
     InteractionResponse, OperationId, Progress,
 };
 use cardpeek_core::TraceDocument;
 use cardpeek_desktop::state::{DesktopState, ExportKind, RunStatus};
-use cardpeek_desktop::{Controller, ReplayBackend};
+use cardpeek_desktop::{Controller, DesktopBackend, ReplayBackend};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -17,16 +18,20 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn controller() -> Controller<ReplayBackend> {
+fn analysers() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../analysers")
+}
+
+fn controller() -> Controller<DesktopBackend> {
     let trace = TraceDocument::load(fixture("traces/atr-synthetic-001.json")).unwrap();
     Controller::new(
-        ReplayBackend::new(trace, "Replay: ATR sample".into()),
-        fixture("analysers"),
+        DesktopBackend::new(ReplayBackend::new(trace, "Replay: ATR sample".into()), None),
+        AnalyserLibrary::at(analysers()).unwrap(),
     )
 }
 
 fn wait_for(
-    controller: &Controller<ReplayBackend>,
+    controller: &Controller<DesktopBackend>,
     state: &mut DesktopState,
     condition: impl Fn(&DesktopState) -> bool,
 ) {
@@ -39,8 +44,11 @@ fn wait_for(
         std::thread::sleep(Duration::from_millis(5));
     }
     panic!(
-        "desktop state did not reach the expected condition: {:?}",
-        state.errors
+        "desktop state did not reach the expected condition: errors={:?} notice={:?} session={:?} exchanges={}",
+        state.errors,
+        state.notice,
+        state.session,
+        state.exchanges.len()
     );
 }
 
@@ -118,6 +126,11 @@ fn replay_atr_workflow_exports_document_and_trace() {
     );
     assert_eq!(exported, expected);
 
+    controller.transmit("00A4040002A000", &mut state);
+    wait_for(&controller, &mut state, |state| state.exchanges.len() == 1);
+    assert_eq!(state.exchanges[0].command, "00A4040002A000");
+    assert_eq!(state.exchanges[0].status, "9000");
+
     controller.disconnect(&mut state);
     wait_for(&controller, &mut state, |state| !state.connected());
     state.export_kind = ExportKind::Trace;
@@ -128,11 +141,60 @@ fn replay_atr_workflow_exports_document_and_trace() {
         state
             .notice
             .as_ref()
-            .is_some_and(|notice| notice.starts_with("Exported trace"))
+            .is_some_and(|notice| notice.ends_with(&trace_path.display().to_string()))
     });
     let exported = TraceDocument::load(&trace_path).unwrap();
-    assert_eq!(exported.records.len(), 1);
+    assert_eq!(exported.records.len(), 2);
+    state.trace_export_mode = cardpeek_app::TraceExportMode::Sanitised;
+    let sanitised_path = directory.join("sanitised.json");
+    state.export_destination = sanitised_path.display().to_string();
+    controller.export(&mut state);
+    wait_for(&controller, &mut state, |state| {
+        state
+            .notice
+            .as_ref()
+            .is_some_and(|notice| notice.ends_with(&sanitised_path.display().to_string()))
+    });
+    let sanitised = TraceDocument::load(&sanitised_path).unwrap();
+    assert_eq!(sanitised, exported.sanitised());
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn desktop_removes_an_analyser_and_refreshes_selection() {
+    let directories = tempfile::tempdir().unwrap();
+    let library = AnalyserLibrary::at(directories.path().join("analysers")).unwrap();
+    let trace = TraceDocument::load(fixture("traces/atr-synthetic-001.json")).unwrap();
+    let controller = Controller::new(
+        DesktopBackend::new(ReplayBackend::new(trace, "Replay: ATR sample".into()), None),
+        library.clone(),
+    );
+    let mut state = DesktopState::default();
+    wait_for(&controller, &mut state, |state| state.analysers.len() == 2);
+    state.selected_analyser = Some("atr".into());
+    controller.remove_analyser(&mut state);
+    wait_for(&controller, &mut state, |state| {
+        state.analysers.len() == 1 && state.selected_analyser.as_deref() == Some("gsm-usim")
+    });
+    assert!(!library.root().join("atr.lua").exists());
+    assert!(
+        state
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("Removed atr"))
+    );
+}
+
+#[test]
+fn discovery_replaces_an_unavailable_analyser_selection() {
+    let controller = controller();
+    let mut state = DesktopState {
+        selected_analyser: Some("removed-analyser".into()),
+        ..DesktopState::default()
+    };
+    wait_for(&controller, &mut state, |state| {
+        !state.analysers.is_empty() && state.selected_analyser.as_deref() == Some("atr")
+    });
 }
 
 #[test]

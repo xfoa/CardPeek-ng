@@ -5,13 +5,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
 
+use cardpeek_analyser::AnalyserLibrary;
+use cardpeek_app::PcscBackend;
 use cardpeek_core::TraceDocument;
-use cardpeek_desktop::{App, Controller, ReplayBackend};
+use cardpeek_desktop::{App, Controller, DesktopBackend, ReplayBackend};
 use dioxus::native::{Config, LogicalSize, WindowAttributes};
 use dioxus::prelude::*;
 
 thread_local! {
-    static CONTROLLER: RefCell<Option<Rc<Controller<ReplayBackend>>>> = const { RefCell::new(None) };
+    static CONTROLLER: RefCell<Option<Rc<Controller<DesktopBackend>>>> = const { RefCell::new(None) };
 }
 
 fn main() -> ExitCode {
@@ -40,19 +42,19 @@ fn launch() -> Result<(), String> {
         || PathBuf::from("tests/fixtures/traces/atr-synthetic-001.json"),
         PathBuf::from,
     );
-    let analyser_root = arguments
-        .next()
-        .map_or_else(|| PathBuf::from("tests/fixtures/analysers"), PathBuf::from);
     if arguments.next().is_some() {
-        return Err("usage: cardpeek-desktop [TRACE_JSON] [ANALYSER_DIRECTORY]".into());
+        return Err("usage: cardpeek-desktop [TRACE_JSON]".into());
     }
+    let analyser_library = AnalyserLibrary::user().map_err(|error| error.to_string())?;
     let reader_name = trace_path
         .file_stem()
         .and_then(std::ffi::OsStr::to_str)
         .map_or_else(|| "Replay".into(), |stem| format!("Replay: {stem}"));
     let trace = TraceDocument::load(&trace_path).map_err(|error| error.to_string())?;
-    let backend = ReplayBackend::new(trace, reader_name);
-    let controller = Rc::new(Controller::new(backend, analyser_root));
+    let replay = ReplayBackend::new(trace, reader_name);
+    let pcsc = PcscBackend::establish().ok();
+    let backend = DesktopBackend::new(replay, pcsc);
+    let controller = Rc::new(Controller::new(backend, analyser_library));
     CONTROLLER.with(|current| *current.borrow_mut() = Some(controller));
     let config = Config::new().with_window_attributes(
         WindowAttributes::default()

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use cardpeek_analyser::AnalyserMetadata;
 use cardpeek_app::{
     DocumentSnapshot, Event, EventKind, InteractionRequest, LogLevel, OperationId, Progress,
-    SessionInfo, SessionState,
+    SessionInfo, SessionState, TraceExportMode,
 };
 use cardpeek_core::{NodeValue, ResultNode, RunId};
 
@@ -63,7 +63,9 @@ pub struct DesktopState {
     pub selected_reader: Option<String>,
     pub analysers: Vec<AnalyserMetadata>,
     pub selected_analyser: Option<String>,
+    pub analyser_directory: String,
     pub session: Option<SessionInfo>,
+    pub last_session: Option<OperationId>,
     pub document: Option<DocumentSnapshot>,
     pub selected_node: Option<String>,
     pub expanded: HashSet<String>,
@@ -82,9 +84,12 @@ pub struct DesktopState {
     pub notice: Option<String>,
     pub run_counter: u64,
     pub show_apdus: bool,
+    pub show_transmit: bool,
+    pub apdu_command: String,
     pub show_export: bool,
     pub export_kind: ExportKind,
     pub export_destination: String,
+    pub trace_export_mode: TraceExportMode,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -148,11 +153,16 @@ impl DesktopState {
             self.pending.remove(&event.operation);
         }
         match event.kind {
-            EventKind::SessionStateChanged { state, reader, .. } => {
-                if state == SessionState::Disconnected {
-                    self.session = None;
-                } else if let Some(current) = &mut self.session {
+            EventKind::SessionStateChanged {
+                state,
+                reader,
+                session,
+            } => {
+                if let Some(current) = &mut self.session {
                     current.state = state;
+                }
+                if state == SessionState::Connected {
+                    self.last_session = Some(session);
                 }
                 if state == SessionState::Connecting {
                     self.notice = Some(format!("Connecting to {}", reader.name));

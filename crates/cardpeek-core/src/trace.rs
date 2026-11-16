@@ -99,6 +99,29 @@ impl TraceDocument {
         id
     }
 
+    /// Returns a copy suitable for sharing with sensitive values redacted.
+    ///
+    /// Command headers, response status words, record order, and reset modes remain.
+    /// Redaction cannot guarantee removal of every card-specific secret.
+    #[must_use]
+    pub fn sanitised(&self) -> Self {
+        let mut sanitised = self.clone();
+        for record in &mut sanitised.records {
+            match record {
+                TraceRecord::Reset { atr, .. } => *atr = Atr::new(Vec::new()),
+                TraceRecord::Command {
+                    command, response, ..
+                } => {
+                    if command.len() > 4 {
+                        command.truncate(4);
+                    }
+                    response.data.clear();
+                }
+            }
+        }
+        sanitised
+    }
+
     fn next_id(&self) -> TraceRecordId {
         TraceRecordId::new(format!("record-{:04}", self.records.len() + 1))
             .unwrap_or_else(|_| unreachable!("generated trace identifiers are nonempty"))
@@ -174,5 +197,37 @@ impl TraceDocument {
 impl Default for TraceDocument {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitised_trace_preserves_structure_and_removes_values() {
+        let mut trace = TraceDocument::new();
+        trace.record_reset(ResetMode::Cold, Atr::new(vec![0x3b, 0x00]));
+        trace.record_command(
+            vec![0x00, 0xa4, 0x04, 0x00, 0x02, 0xa0, 0x00],
+            vec![0x01, 0x02],
+            StatusWord::NORMAL_PROCESSING,
+        );
+        let sanitised = trace.sanitised();
+        assert_eq!(sanitised.records.len(), 2);
+        match &sanitised.records[0] {
+            TraceRecord::Reset { atr, .. } => assert_eq!(atr.as_bytes(), [] as [u8; 0]),
+            TraceRecord::Command { .. } => panic!("expected reset"),
+        }
+        match &sanitised.records[1] {
+            TraceRecord::Command {
+                command, response, ..
+            } => {
+                assert_eq!(command, &[0x00, 0xa4, 0x04, 0x00]);
+                assert_eq!(response.data, [] as [u8; 0]);
+                assert_eq!(response.status, StatusWord::NORMAL_PROCESSING);
+            }
+            TraceRecord::Reset { .. } => panic!("expected command"),
+        }
     }
 }

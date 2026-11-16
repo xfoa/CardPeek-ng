@@ -11,12 +11,16 @@ fn fixture(name: &str) -> String {
     format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
+fn analysers() -> String {
+    format!("{}/../../analysers", env!("CARGO_MANIFEST_DIR"))
+}
+
 #[test]
 fn discovers_analysers_without_executing_them() {
     Command::cargo_bin("cardpeek")
         .unwrap()
         .arg("discover")
-        .arg(fixture("analysers"))
+        .arg(analysers())
         .assert()
         .success()
         .stdout("ID        VERSION  TITLE             DESCRIPTION\natr       1.0.0    ATR               Inspect the current Answer to Reset\ngsm-usim  1.0.0    GSM SIM and USIM  Inspect GSM SIM and USIM files without authentication or writes\n");
@@ -30,7 +34,8 @@ fn replay_exports_the_expected_native_document() {
         .unwrap()
         .arg("replay")
         .arg(fixture("traces/atr-synthetic-001.json"))
-        .arg(fixture("analysers"))
+        .arg("--analysers")
+        .arg(analysers())
         .arg("atr")
         .arg("--output")
         .arg(&output)
@@ -49,7 +54,8 @@ fn replays_gsm_usim_files_and_preserves_read_only_behaviour() {
         .unwrap()
         .arg("replay")
         .arg(fixture("traces/gsm-usim-synthetic-001.json"))
-        .arg(fixture("analysers"))
+        .arg("--analysers")
+        .arg(analysers())
         .arg("gsm-usim")
         .arg("--output")
         .arg(&output)
@@ -72,7 +78,8 @@ fn rejects_an_analyser_that_was_not_discovered() {
         .unwrap()
         .arg("replay")
         .arg(fixture("traces/atr-synthetic-001.json"))
-        .arg(fixture("analysers"))
+        .arg("--analysers")
+        .arg(analysers())
         .arg("missing")
         .arg("--output")
         .arg(&output)
@@ -80,4 +87,96 @@ fn rejects_an_analyser_that_was_not_discovered() {
         .failure()
         .stderr(contains("analyser missing was not discovered"));
     assert!(!output.exists());
+}
+
+#[test]
+fn manages_and_uses_the_platform_analyser_library() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config");
+    let library = config.join("cardpeek-ng/analysers");
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("analysers")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(contains("atr"))
+        .stdout(contains("gsm-usim"));
+    let mut bundled = 0;
+    for source in std::fs::read_dir(analysers()).unwrap() {
+        let source = source.unwrap().path();
+        if source
+            .extension()
+            .is_some_and(|extension| extension == "lua")
+        {
+            let destination = library.join(source.file_name().unwrap());
+            assert_eq!(
+                std::fs::read(destination).unwrap(),
+                std::fs::read(source).unwrap()
+            );
+            bundled += 1;
+        }
+    }
+    assert!(bundled > 0);
+    let custom = directory.path().join("custom.lua");
+    std::fs::write(
+        &custom,
+        "-- @id custom\n-- @title Custom\n-- @description Test import\n-- @version 1.0.0\n",
+    )
+    .unwrap();
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("analysers")
+        .arg("import")
+        .arg(directory.path())
+        .assert()
+        .success()
+        .stdout(contains("Imported custom"));
+    assert!(library.join("custom.lua").is_file());
+
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("analysers")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(contains("atr"))
+        .stdout(contains("gsm-usim"));
+
+    let output = directory.path().join("library-result.json");
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("replay")
+        .arg(fixture("traces/atr-synthetic-001.json"))
+        .arg("atr")
+        .arg("--output")
+        .arg(&output)
+        .assert()
+        .success();
+    assert_eq!(std::fs::read_to_string(output).unwrap(), EXPECTED);
+
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("analysers")
+        .arg("remove")
+        .arg("atr")
+        .assert()
+        .success()
+        .stdout(contains("Removed atr"));
+    assert!(!library.join("atr.lua").exists());
+    assert!(library.join("gsm_usim.lua").is_file());
+
+    let mut command = Command::cargo_bin("cardpeek").unwrap();
+    command
+        .env("XDG_CONFIG_HOME", &config)
+        .arg("analysers")
+        .arg("list")
+        .assert()
+        .success();
+    assert!(!library.join("atr.lua").exists());
 }

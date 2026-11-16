@@ -8,7 +8,9 @@ Hardware access must never be required to read or use them.
 
 - `traces/` contains versioned native JSON trace captures.
 - `documents/` contains versioned native JSON documents.
-- `analysers/` contains analyser scripts and resources used by tests.
+- `analysers/` contains metadata for analyser fixtures.
+
+The repository root `analysers` directory contains the analyser scripts used by tests.
 
 Each fixture or fixture set must have an adjacent metadata file.
 Use a TOML metadata file with the fields below.
