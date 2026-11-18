@@ -49,23 +49,6 @@ macOS uses the built-in PCSC framework.
 
 The commands below run from the repository root.
 
-## Try it without a card
-
-Replay the included synthetic ATR trace:
-
-```sh
-cargo run -p cardpeek-cli -- replay \
-  tests/fixtures/traces/atr-synthetic-001.json \
-  atr \
-  --output /tmp/atr-result.json
-```
-
-This writes the decoded result to `/tmp/atr-result.json`.
-The expected result is in [`tests/fixtures/documents/atr-synthetic-001.json`](tests/fixtures/documents/atr-synthetic-001.json).
-
-The first run creates a personal analyser library and copies the bundled analysers into it.
-No card reader is needed for replay.
-
 ## Use the desktop application
 
 Start the application:
@@ -91,7 +74,26 @@ cargo run -p cardpeek-desktop -- tests/fixtures/traces/atr-synthetic-001.json
 Opening a trace does not run an analyser.
 Select a reset-delimited segment in Analysis to decode or replay it.
 
-## Use a real card
+## CLI
+
+### Try it without a card
+
+Replay the included synthetic ATR trace:
+
+```sh
+cargo run -p cardpeek-cli -- replay \
+  tests/fixtures/traces/atr-synthetic-001.json \
+  atr \
+  --output /tmp/atr-result.json
+```
+
+This writes the decoded result to `/tmp/atr-result.json`.
+The expected result is in [`tests/fixtures/documents/atr-synthetic-001.json`](tests/fixtures/documents/atr-synthetic-001.json).
+
+The first run creates a personal analyser library and copies the bundled analysers into it.
+No card reader is needed for replay.
+
+### Use a real card
 
 If you're new to smart cards, use a disposable test card first.
 Do not start with a card that contains credentials or personal data.
@@ -138,7 +140,7 @@ Raw traces contain card data and APDU exchanges.
 Treat them as sensitive files.
 Review sanitised traces before sharing them; redaction does not remove every possible card-specific value.
 
-## Manage analysers
+### Manage analysers
 
 List the installed analysers and the library location:
 
@@ -166,7 +168,7 @@ Use `--analysers DIRECTORY` with `run` or `replay` to use a different analyser d
 Lua analysers are trusted code and are not sandboxed.
 Only install and run scripts you trust.
 
-## Build and test
+### Build and test
 
 The default tests use synthetic fixtures and do not need a card reader:
 
