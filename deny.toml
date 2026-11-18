@@ -2,12 +2,14 @@
 allow = [
     "0BSD",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",
+    "NCSA",
     "Unicode-3.0",
     "Unicode-DFS-2016",
     "Zlib",
@@ -19,6 +21,19 @@ ignore = true
 
 [advisories]
 version = 2
+ignore = [
+    { id = "RUSTSEC-2024-0384", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2024-0436", reason = "Transitive dependency of gpui 0.2.2 and image; maintenance-only advisory" },
+    { id = "RUSTSEC-2025-0052", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2025-0134", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0173", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0192", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0206", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0370", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0371", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0372", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+    { id = "RUSTSEC-2026-0441", reason = "Transitive dependency of gpui 0.2.2; maintenance-only advisory" },
+]
 
 [bans]
 multiple-versions = "warn"
