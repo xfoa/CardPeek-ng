@@ -4,7 +4,7 @@
 
 Commands carry a command identifier and, where relevant, a session or run identifier.
 
-The initial command families are:
+The command families are:
 
 - Enumerate readers.
 - Connect.
@@ -12,7 +12,10 @@ The initial command families are:
 - Reset.
 - Transmit an APDU.
 - Discover analysers.
-- Run an analyser.
+- Run an analyser through the legacy CLI path.
+- Collect an analyser from the current physical card.
+- Decode a captured-data bundle from a trace segment.
+- Replay an analyser against one trace segment.
 - Cancel an operation.
 - Answer an interaction.
 - Export a document.
@@ -50,6 +53,13 @@ The worker performs blocking operations.
 The application engine sends commands and receives ordered events.
 Front ends do not call the worker directly.
 
+Live collection requires an active PC/SC session with a card.
+Migrated analysers collect values and decode them during the live run.
+Live-only analysers retain the legacy execution path.
+Offline decode and replay use dedicated worker threads.
+They do not call the session backend or change the physical session.
+Replay extracts the selected reset segment and reports the analyser, segment, and missing command on a mismatch.
+
 Cancellation is cooperative.
 
 - Lua host calls check cancellation.
@@ -79,6 +89,6 @@ The first release supports:
 
 The worker waits for a correlated response or cancellation.
 The CLI renders these requests in the terminal.
-Dioxus renders them as dialogs.
+GPUI renders them as dialogs.
 
-Script APIs never invoke terminal or Dioxus functions directly.
+Script APIs never invoke terminal or GPUI functions directly.

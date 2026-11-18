@@ -13,12 +13,29 @@ pub enum ReplayError {
     /// No reset has supplied an ATR.
     #[error("no ATR is available")]
     MissingAtr,
+    /// A warm reset is outside the selected segment.
+    #[error("warm reset is outside replay segment {segment}")]
+    ResetOutsideSegment {
+        /// Selected zero-based reset segment.
+        segment: usize,
+    },
     /// No command in the current cycle matches the request.
-    #[error("no replay response for command {command}")]
+    #[error("no replay response for command {command} in segment {segment:?}")]
     CommandNotFound {
         /// Uppercase hexadecimal command.
         command: String,
+        /// Selected segment for bounded replay.
+        segment: Option<usize>,
     },
+}
+
+/// One replay response and its source trace record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedResponse {
+    /// Recorded card response.
+    pub response: ApduResponse,
+    /// Actual source trace record identifier.
+    pub record: TraceRecordId,
 }
 
 /// Stateful replay of one native trace.
@@ -28,18 +45,56 @@ pub struct ReplaySession {
     connected: bool,
     current_atr: Option<usize>,
     position: usize,
+    segment: Option<usize>,
+    start: usize,
+    end: usize,
 }
 
 impl ReplaySession {
     /// Creates a disconnected replay session.
     #[must_use]
     pub fn new(trace: TraceDocument) -> Self {
+        let end = trace.records.len();
         Self {
             trace,
             connected: false,
             current_atr: None,
             position: 0,
+            segment: None,
+            start: 0,
+            end,
         }
+    }
+
+    /// Creates a replay session bounded to one reset-delimited segment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the segment is absent or has no initial reset.
+    pub fn for_segment(trace: TraceDocument, segment: usize) -> Result<Self, ReplayError> {
+        let selected = trace.segment(segment).ok_or(ReplayError::CommandNotFound {
+            command: String::new(),
+            segment: Some(segment),
+        })?;
+        if selected.reset().is_none() {
+            return Err(ReplayError::MissingColdReset);
+        }
+        let first_id = selected.records[0].id();
+        let start = trace
+            .records
+            .iter()
+            .position(|record| record.id() == first_id)
+            .unwrap_or(0);
+        let end = start + selected.records.len();
+        Ok(Self {
+            trace,
+            connected: false,
+            current_atr: None,
+            position: start,
+            segment: Some(segment),
+            start,
+            end,
+        })
     }
 
     /// Connects and performs a cold reset.
@@ -72,10 +127,13 @@ impl ReplaySession {
         if !self.connected {
             return Err(ReplayError::NotConnected);
         }
-        if !matches!(self.trace.records.first(), Some(TraceRecord::Reset { .. })) {
+        if !matches!(
+            self.trace.records.get(self.start),
+            Some(TraceRecord::Reset { .. })
+        ) {
             return Err(ReplayError::MissingColdReset);
         }
-        self.select_reset(0)
+        self.select_reset(self.start)
     }
 
     /// Replays the next reset record, wrapping after the current reset.
@@ -87,9 +145,14 @@ impl ReplaySession {
         if !self.connected {
             return Err(ReplayError::NotConnected);
         }
+        if self.segment.is_some() {
+            return Err(ReplayError::ResetOutsideSegment {
+                segment: self.segment.unwrap_or(0),
+            });
+        }
         let start = self.current_atr.unwrap_or(0);
-        let index = (start + 1..self.trace.records.len())
-            .chain(0..=start)
+        let index = (start + 1..self.end)
+            .chain(self.start..=start)
             .find(|index| matches!(self.trace.records[*index], TraceRecord::Reset { .. }))
             .ok_or(ReplayError::MissingColdReset)?;
         self.select_reset(index)
@@ -118,26 +181,43 @@ impl ReplaySession {
     ///
     /// Returns an error when disconnected or when no recorded command matches.
     pub fn transmit(&mut self, command: &[u8]) -> Result<ApduResponse, ReplayError> {
+        self.transmit_with_record(command)
+            .map(|recorded| recorded.response)
+    }
+
+    /// Finds a matching command and returns its response and actual record identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when disconnected or no recorded command matches in the segment.
+    pub fn transmit_with_record(
+        &mut self,
+        command: &[u8],
+    ) -> Result<RecordedResponse, ReplayError> {
         if !self.connected {
             return Err(ReplayError::NotConnected);
         }
         let start = self.position;
-        let after_reset = self.current_atr.map_or(0, |index| index + 1);
-        let indexes = (start..self.trace.records.len()).chain(after_reset..start);
+        let after_reset = self.current_atr.map_or(self.start, |index| index + 1);
+        let indexes = (start..self.end).chain(after_reset..start);
         for index in indexes {
             if let TraceRecord::Command {
+                id,
                 command: expected,
                 response,
-                ..
             } = &self.trace.records[index]
                 && expected == command
             {
-                self.position = next_command_position(&self.trace, index, after_reset);
-                return Ok(response.clone());
+                self.position = next_command_position(&self.trace, index, after_reset, self.end);
+                return Ok(RecordedResponse {
+                    response: response.clone(),
+                    record: id.clone(),
+                });
             }
         }
         Err(ReplayError::CommandNotFound {
             command: hex(command),
+            segment: self.segment,
         })
     }
 
@@ -171,9 +251,14 @@ impl ReplaySession {
     }
 }
 
-fn next_command_position(trace: &TraceDocument, current: usize, after_reset: usize) -> usize {
+fn next_command_position(
+    trace: &TraceDocument,
+    current: usize,
+    after_reset: usize,
+    end: usize,
+) -> usize {
     let next = current + 1;
-    if next < trace.records.len() && matches!(trace.records[next], TraceRecord::Command { .. }) {
+    if next < end && matches!(trace.records[next], TraceRecord::Command { .. }) {
         next
     } else {
         after_reset
@@ -217,13 +302,34 @@ mod tests {
     }
 
     #[test]
+    fn bounded_segment_returns_record_ids_and_rejects_other_resets() {
+        let mut session = ReplaySession::for_segment(trace(), 1).unwrap();
+        assert_eq!(session.connect().unwrap().as_bytes(), [0x3b, 1]);
+        let response = session.transmit_with_record(&[0, 0xa4, 0, 0]).unwrap();
+        assert_eq!(response.response.data, [3]);
+        assert_eq!(response.record.as_str(), "record-0005");
+        assert_eq!(
+            session.warm_reset().unwrap_err(),
+            ReplayError::ResetOutsideSegment { segment: 1 }
+        );
+        assert_eq!(
+            session.transmit(&[0, 0xc0, 0, 0]).unwrap_err(),
+            ReplayError::CommandNotFound {
+                command: "00C00000".into(),
+                segment: Some(1),
+            }
+        );
+    }
+
+    #[test]
     fn mismatch_is_structured_error() {
         let mut session = ReplaySession::new(trace());
         session.connect().unwrap();
         assert_eq!(
             session.transmit(&[0xff]).unwrap_err(),
             ReplayError::CommandNotFound {
-                command: "FF".into()
+                command: "FF".into(),
+                segment: None,
             }
         );
     }

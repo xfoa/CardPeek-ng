@@ -9,6 +9,17 @@ pub struct SessionCapabilities {
     pub extended_apdus: bool,
 }
 
+/// Current card presence and connection details.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardStatus {
+    /// Whether a card is present and connected.
+    pub card_present: bool,
+    /// Negotiated protocol, or `Other` when no card is connected.
+    pub protocol: Protocol,
+    /// Current ATR, or an empty value when no card is connected.
+    pub atr: Atr,
+}
+
 /// Blocking operations on one active card connection.
 ///
 /// A session has one owner. Implementations do not retry commands or issue
@@ -29,6 +40,19 @@ pub trait CardSession {
     ///
     /// Returns a native error when the ATR is unavailable or cancellation was requested.
     fn atr(&self) -> Result<Atr, Self::Error>;
+
+    /// Returns current card presence and connection details.
+    ///
+    /// # Errors
+    ///
+    /// Returns a native error when the reader status cannot be queried.
+    fn status(&mut self) -> Result<CardStatus, Self::Error> {
+        Ok(CardStatus {
+            card_present: true,
+            protocol: self.protocol(),
+            atr: self.atr()?,
+        })
+    }
 
     /// Resets the card and returns its new Answer to Reset.
     ///

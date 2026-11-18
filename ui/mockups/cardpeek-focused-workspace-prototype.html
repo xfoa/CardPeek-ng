@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>CardPeek-ng - Focused workspace prototype</title>
+  <title>Cardpeek-ng - Focused workspace prototype</title>
   <style>
     :root {
       --ink: #18262a;
@@ -455,7 +455,7 @@
       };
       const navButton = (screen, compact = false) => `<button class="nav-button ${state.screen === screen.id ? "active" : ""}" type="button" data-screen="${screen.id}" title="${screen.label}" aria-current="${state.screen === screen.id ? "page" : "false"}">${icon(screen.icon)}<span>${compact ? screen.short : screen.label}</span>${!compact && screen.id === "settings" ? `<span class="nav-number">${state.analysers.length}</span>` : ""}</button>`;
       const header = () => `<header class="header ${state.variant === 1 ? "header-b" : ""}">
-        <div class="brand"><div class="brand-mark" aria-hidden="true"></div><div><div class="brand-name">CardPeek <span>NG</span></div><span class="brand-sub">Focused workspace prototype</span></div></div>
+        <div class="brand"><div class="brand-mark" aria-hidden="true"></div><div><div class="brand-name">Cardpeek <span>NG</span></div><span class="brand-sub">Focused workspace prototype</span></div></div>
         ${state.variant === 1 ? `<nav class="top-tabs" aria-label="Main screens">${screens.map(screen => `<button class="top-tab ${state.screen === screen.id ? "active" : ""}" type="button" data-screen="${screen.id}">${icon(screen.icon)}${screen.label}</button>`).join("")}</nav>` : ""}
         <div class="header-context"><span class="badge ${state.source === "replay" ? "badge-amber" : "badge-dark"}">${state.source === "replay" ? "Replay" : "Live reader"}</span><span class="context-name">${escapeHtml(contextLabel())}</span><span class="status-line"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? state.inserted ? "Card present" : "No card" : "Disconnected"}</span></div>
       </header>`;
@@ -524,7 +524,7 @@
         const variant = variants[state.variant];
         document.getElementById("variant-name").textContent = variant.name;
         document.getElementById("variant-dots").innerHTML = variants.map((item, index) => `<button class="switch-dot ${index === state.variant ? "active" : ""}" type="button" data-variant="${index}" aria-label="${item.name}"></button>`).join("");
-        document.title = `CardPeek-ng - ${variant.name}`;
+        document.title = `Cardpeek-ng - ${variant.name}`;
         if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
       };
       const switchVariant = index => {

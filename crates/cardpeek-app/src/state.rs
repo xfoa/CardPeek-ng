@@ -73,6 +73,7 @@ impl SharedState {
                 | CommandKind::Reset(_)
                 | CommandKind::Transmit(_)
                 | CommandKind::RunAnalyser(_)
+                | CommandKind::CollectAnalyser(_)
         ) && state.worker.is_none()
         {
             return Err(AppError::NoActiveSession);
@@ -85,7 +86,11 @@ impl SharedState {
                 kind: OperationKind::from(command),
                 status: OperationStatus::Pending,
                 run_id: match &command.kind {
-                    CommandKind::RunAnalyser(request) => Some(request.run_id.clone()),
+                    CommandKind::RunAnalyser(request) | CommandKind::CollectAnalyser(request) => {
+                        Some(request.run_id.clone())
+                    }
+                    CommandKind::DecodeAnalyser(request) => Some(request.run_id.clone()),
+                    CommandKind::ReplayAnalyser(request) => Some(request.run_id.clone()),
                     _ => None,
                 },
             },
@@ -167,6 +172,7 @@ impl SharedState {
                         | OperationKind::Reset
                         | OperationKind::Transmit
                         | OperationKind::RunAnalyser
+                        | OperationKind::CollectAnalyser
                 );
                 if operation.status == OperationStatus::Pending
                     && operation.id != *session
@@ -196,6 +202,15 @@ impl SharedState {
             atr,
             state: SessionState::Connected,
         });
+    }
+
+    pub(crate) fn update_card_status(&self, card_present: bool, protocol: Protocol, atr: Atr) {
+        let mut state = lock_unpoisoned(&self.inner);
+        if let Some(session) = &mut state.session {
+            session.reader.card_present = Some(card_present);
+            session.protocol = protocol;
+            session.atr = atr;
+        }
     }
 
     pub(crate) fn session(&self) -> Option<SessionInfo> {
@@ -267,6 +282,9 @@ impl OperationKind {
             CommandKind::Transmit(_) => Self::Transmit,
             CommandKind::DiscoverAnalysers(_) => Self::DiscoverAnalysers,
             CommandKind::RunAnalyser(_) => Self::RunAnalyser,
+            CommandKind::CollectAnalyser(_) => Self::CollectAnalyser,
+            CommandKind::DecodeAnalyser(_) => Self::DecodeAnalyser,
+            CommandKind::ReplayAnalyser(_) => Self::ReplayAnalyser,
             CommandKind::Cancel(_) => Self::Cancel,
             CommandKind::AnswerInteraction(_) => Self::AnswerInteraction,
             CommandKind::ExportDocument(_) => Self::ExportDocument,

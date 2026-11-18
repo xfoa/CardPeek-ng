@@ -7,10 +7,11 @@ use cardpeek_analyser::{
     AnalyserMetadata, Cancellation, CardHost, EventSink, ExecutionRequest, HostError,
 };
 use cardpeek_core::{
-    ApduCommand, ApduResponse, Atr, ReaderInfo, ResetMode, ResultDocument, RunId, TraceDocument,
-    TraceRecordId,
+    ApduCommand, ApduResponse, Atr, Protocol, ReaderInfo, ResetMode, ResultDocument, RunId,
+    TraceDocument, TraceRecordId,
 };
-use cardpeek_transport::{CardSession, SessionCapabilities};
+use cardpeek_replay::ReplaySession;
+use cardpeek_transport::{CardSession, CardStatus, SessionCapabilities};
 
 use crate::state::SharedState;
 use crate::sync::{CancellationToken, CommandQueue, EventQueue, lock_unpoisoned};
@@ -121,7 +122,32 @@ impl<B: SessionBackend> SessionRuntime<B> {
     }
 }
 
+pub(crate) struct OfflineContext {
+    pub(crate) shared: SharedState,
+    pub(crate) subscribers: Arc<std::sync::Mutex<Vec<Arc<EventQueue>>>>,
+    pub(crate) documents: Arc<std::sync::Mutex<HashMap<RunId, Arc<ResultDocument>>>>,
+    pub(crate) analysers: Arc<std::sync::Mutex<HashMap<String, AnalyserMetadata>>>,
+    pub(crate) interactions:
+        Arc<std::sync::Mutex<HashMap<crate::InteractionId, Arc<crate::InteractionSlot>>>>,
+    pub(crate) sequence: Arc<std::sync::Mutex<u64>>,
+    pub(crate) interaction_timeout: std::time::Duration,
+}
+
 impl<B: SessionBackend> SessionRuntime<B> {
+    pub(crate) fn spawn_offline(
+        context: OfflineContext,
+        operation: OperationId,
+        request: CommandKind,
+        token: CancellationToken,
+    ) -> thread::JoinHandle<()> {
+        thread::Builder::new()
+            .name(format!("cardpeek-offline-{}", operation.as_str()))
+            .spawn(move || {
+                OfflineRuntime { context }.run(&operation, request, &token);
+            })
+            .expect("offline worker thread can be created")
+    }
+
     pub(crate) fn spawn(
         self,
         operation: OperationId,
@@ -140,10 +166,10 @@ impl<B: SessionBackend> SessionRuntime<B> {
         request: &ConnectRequest,
         commands: &CommandQueue<WorkerCommand>,
     ) {
-        let reader = ReaderInfo {
+        let mut reader = ReaderInfo {
             name: request.reader.clone(),
             transport: request.transport,
-            card_present: Some(true),
+            card_present: None,
         };
         self.emit(Event::new(
             operation.clone(),
@@ -164,8 +190,8 @@ impl<B: SessionBackend> SessionRuntime<B> {
                 return;
             }
         };
-        let atr = match session.atr().map_err(transport_error) {
-            Ok(atr) => atr,
+        let status = match session.status().map_err(transport_error) {
+            Ok(status) => status,
             Err(error) => {
                 self.fail_pending(operation, &AppError::NoActiveSession);
                 self.shared.clear_worker(operation);
@@ -178,14 +204,18 @@ impl<B: SessionBackend> SessionRuntime<B> {
             self.fail(operation, &error);
             return;
         }
+        reader.card_present = Some(status.card_present);
         let mut trace = TraceDocument::new();
-        trace.record_reset(ResetMode::Cold, atr.clone());
+        if status.card_present {
+            trace.record_reset(ResetMode::Cold, status.atr.clone());
+        }
+        self.snapshot_trace(operation, &trace);
         self.shared.set_session(
             operation,
             reader.clone(),
-            session.protocol(),
+            status.protocol,
             session.capabilities(),
-            atr,
+            status.atr,
         );
         self.emit(Event::new(
             operation.clone(),
@@ -198,7 +228,7 @@ impl<B: SessionBackend> SessionRuntime<B> {
         self.complete(operation);
 
         let disconnect_operation =
-            self.process_commands(operation, &mut session, &mut trace, commands);
+            self.process_commands(operation, &mut reader, &mut session, &mut trace, commands);
         commands.close();
         self.fail_pending(operation, &AppError::Shutdown);
         self.cleanup(operation, reader, session, trace, disconnect_operation);
@@ -207,11 +237,25 @@ impl<B: SessionBackend> SessionRuntime<B> {
     fn process_commands<S: CardSession>(
         &self,
         operation: &OperationId,
+        reader: &mut ReaderInfo,
         session: &mut S,
         trace: &mut TraceDocument,
         commands: &CommandQueue<WorkerCommand>,
     ) -> Option<OperationId> {
-        while let Some(command) = commands.pop() {
+        while !commands.is_closed() {
+            if let Err(error) = self.refresh_card_status(operation, reader, session, trace) {
+                self.emit(Event::new(
+                    operation.clone(),
+                    EventKind::OperationFailed {
+                        operation: operation.clone(),
+                        error: error.to_string(),
+                    },
+                ));
+                return None;
+            }
+            let Some(command) = commands.pop_timeout(std::time::Duration::from_millis(100)) else {
+                continue;
+            };
             let disconnect = matches!(command.kind, CommandKind::Disconnect);
             let disconnect_operation = disconnect.then(|| command.operation.clone());
             self.shared.begin(&command.operation);
@@ -233,48 +277,10 @@ impl<B: SessionBackend> SessionRuntime<B> {
                     .map_err(AppError::Core)
                     .and_then(|_| host.transmit(bytes).map(|_| ())),
                 CommandKind::RunAnalyser(request) => {
-                    let run_id = request.run_id.clone();
-                    (|| {
-                        let Some(metadata) = lock_unpoisoned(&self.analysers)
-                            .get(&request.analyser)
-                            .cloned()
-                        else {
-                            return Err(AppError::AnalyserNotFound(request.analyser.clone()));
-                        };
-                        let execution = ExecutionRequest {
-                            analyser: metadata,
-                            run_id: run_id.clone(),
-                            document_id: request.document_id.clone(),
-                        };
-                        let context = self.analyser_context(
-                            &command.operation,
-                            run_id.clone(),
-                            &command.token,
-                        );
-                        let events = WorkerEvents { context };
-                        let session_info =
-                            self.shared.session().ok_or(AppError::NoActiveSession)?;
-                        let current_record = host.current_atr_record();
-                        let mut runtime_host = RuntimeCardHost {
-                            host: &mut host,
-                            protocol: session_info.protocol,
-                            capabilities: session_info.capabilities,
-                            current_record,
-                        };
-                        let document =
-                            cardpeek_lua::execute(&execution, &mut runtime_host, &events)
-                                .map_err(|error| AppError::Analyser(error.to_string()))?;
-                        lock_unpoisoned(&self.documents)
-                            .insert(run_id.clone(), Arc::new(document.clone()));
-                        self.emit(Event::new(
-                            command.operation.clone(),
-                            EventKind::DocumentPublished {
-                                run_id: run_id.clone(),
-                                revision: document.revision,
-                            },
-                        ));
-                        Ok(())
-                    })()
+                    self.run_analyser(&command, request, &mut host)
+                }
+                CommandKind::CollectAnalyser(request) => {
+                    self.collect_analyser(operation, &command, request, &mut host)
                 }
                 _ => Err(AppError::OperationInProgress),
             };
@@ -288,6 +294,137 @@ impl<B: SessionBackend> SessionRuntime<B> {
             }
         }
         None
+    }
+
+    fn run_analyser<S: CardSession>(
+        &self,
+        command: &WorkerCommand,
+        request: &crate::RunAnalyserRequest,
+        host: &mut SessionHost<'_, S, B>,
+    ) -> Result<()> {
+        let Some(metadata) = lock_unpoisoned(&self.analysers)
+            .get(&request.analyser)
+            .cloned()
+        else {
+            return Err(AppError::AnalyserNotFound(request.analyser.clone()));
+        };
+        let execution = ExecutionRequest {
+            analyser: metadata,
+            run_id: request.run_id.clone(),
+            document_id: request.document_id.clone(),
+        };
+        let context =
+            self.analyser_context(&command.operation, request.run_id.clone(), &command.token);
+        let events = WorkerEvents { context };
+        let session_info = self.shared.session().ok_or(AppError::NoActiveSession)?;
+        let current_record = host.current_atr_record();
+        let mut runtime_host = RuntimeCardHost {
+            host,
+            protocol: session_info.protocol,
+            capabilities: session_info.capabilities,
+            current_record,
+        };
+        let document = cardpeek_lua::execute(&execution, &mut runtime_host, &events)
+            .map_err(|error| AppError::Analyser(error.to_string()))?;
+        self.publish_document(&command.operation, &request.run_id, &document);
+        Ok(())
+    }
+
+    fn collect_analyser<S: CardSession>(
+        &self,
+        operation: &OperationId,
+        command: &WorkerCommand,
+        request: &crate::RunAnalyserRequest,
+        host: &mut SessionHost<'_, S, B>,
+    ) -> Result<()> {
+        let session_info = self.shared.session().ok_or(AppError::NoActiveSession)?;
+        if session_info.reader.transport != cardpeek_core::TransportKind::Pcsc
+            || session_info.reader.card_present != Some(true)
+        {
+            return Err(AppError::CardNotPresent);
+        }
+        let Some(metadata) = lock_unpoisoned(&self.analysers)
+            .get(&request.analyser)
+            .cloned()
+        else {
+            return Err(AppError::AnalyserNotFound(request.analyser.clone()));
+        };
+        if !metadata.capabilities.live_collection {
+            return Err(AppError::Analyser(format!(
+                "analyser {} does not support live collection",
+                metadata.id
+            )));
+        }
+        let decode_capture = metadata.capabilities.offline_decoding;
+        let segment = host.trace.segments().len().saturating_sub(1);
+        let execution = ExecutionRequest {
+            analyser: metadata,
+            run_id: request.run_id.clone(),
+            document_id: request.document_id.clone(),
+        };
+        let context =
+            self.analyser_context(&command.operation, request.run_id.clone(), &command.token);
+        let events = WorkerEvents { context };
+        let current_record = host.current_atr_record();
+        let mut runtime_host = RuntimeCardHost {
+            host: &mut *host,
+            protocol: session_info.protocol,
+            capabilities: session_info.capabilities,
+            current_record,
+        };
+        let document = if decode_capture {
+            let result =
+                cardpeek_lua::execute_with_capture(&execution, &mut runtime_host, &events, segment)
+                    .map_err(|error| AppError::Analyser(error.to_string()))?;
+            host.trace.captures.push(result.capture);
+            host.trace.validate()?;
+            self.snapshot_trace(operation, host.trace);
+            result.document
+        } else {
+            cardpeek_lua::execute(&execution, &mut runtime_host, &events)
+                .map_err(|error| AppError::Analyser(error.to_string()))?
+        };
+        self.publish_document(&command.operation, &request.run_id, &document);
+        Ok(())
+    }
+
+    fn refresh_card_status<S: CardSession>(
+        &self,
+        operation: &OperationId,
+        reader: &mut ReaderInfo,
+        session: &mut S,
+        trace: &mut TraceDocument,
+    ) -> Result<()> {
+        let status = session.status().map_err(transport_error)?;
+        let changed = reader.card_present != Some(status.card_present)
+            || self.shared.session().is_some_and(|current| {
+                current.protocol != status.protocol || current.atr != status.atr
+            });
+        if !changed {
+            return Ok(());
+        }
+        let inserted = reader.card_present == Some(false) && status.card_present;
+        reader.card_present = Some(status.card_present);
+        if inserted {
+            trace.record_reset(ResetMode::Cold, status.atr.clone());
+        }
+        self.snapshot_trace(operation, trace);
+        self.publish_card_status(operation, status);
+        Ok(())
+    }
+
+    fn publish_card_status(&self, operation: &OperationId, status: CardStatus) {
+        self.shared
+            .update_card_status(status.card_present, status.protocol, status.atr.clone());
+        self.emit(Event::new(
+            operation.clone(),
+            EventKind::CardStatusChanged {
+                session: operation.clone(),
+                card_present: status.card_present,
+                protocol: status.protocol,
+                atr: status.atr,
+            },
+        ));
     }
 
     fn cleanup<S: CardSession>(
@@ -377,6 +514,26 @@ impl<B: SessionBackend> SessionRuntime<B> {
             }
         };
         self.emit(Event::new(operation.clone(), kind));
+    }
+
+    fn snapshot_trace(&self, operation: &OperationId, trace: &TraceDocument) {
+        lock_unpoisoned(&self.session_traces).insert(operation.clone(), Arc::new(trace.clone()));
+    }
+
+    pub(crate) fn publish_document(
+        &self,
+        operation: &OperationId,
+        run_id: &RunId,
+        document: &ResultDocument,
+    ) {
+        lock_unpoisoned(&self.documents).insert(run_id.clone(), Arc::new(document.clone()));
+        self.emit(Event::new(
+            operation.clone(),
+            EventKind::DocumentPublished {
+                run_id: run_id.clone(),
+                revision: document.revision,
+            },
+        ));
     }
 
     fn emit(&self, event: Event) {
@@ -492,6 +649,7 @@ impl<S: CardSession, B: SessionBackend> AnalyserHost for SessionHost<'_, S, B> {
         self.runtime.shared.session_state(SessionState::Resetting);
         let atr = self.session.reset(mode).map_err(transport_error)?;
         self.trace.record_reset(mode, atr.clone());
+        self.runtime.snapshot_trace(&self.session_id, self.trace);
         self.runtime.shared.update_atr(atr.clone());
         self.runtime.shared.session_state(SessionState::Connected);
         self.token.check()?;
@@ -504,6 +662,7 @@ impl<S: CardSession, B: SessionBackend> AnalyserHost for SessionHost<'_, S, B> {
         let record =
             self.trace
                 .record_command(command.to_vec(), response.data.clone(), response.status);
+        self.runtime.snapshot_trace(&self.session_id, self.trace);
         self.runtime.emit(Event::new(
             self.operation.clone(),
             EventKind::ApduExchanged {
@@ -514,6 +673,260 @@ impl<S: CardSession, B: SessionBackend> AnalyserHost for SessionHost<'_, S, B> {
             },
         ));
         Ok(response)
+    }
+}
+
+struct OfflineRuntime {
+    context: OfflineContext,
+}
+
+impl OfflineRuntime {
+    fn run(self, operation: &OperationId, request: CommandKind, token: &CancellationToken) {
+        self.context.shared.begin(operation);
+        let result = match request {
+            CommandKind::DecodeAnalyser(request) => self.decode(operation, &request, token),
+            CommandKind::ReplayAnalyser(request) => self.replay(operation, &request, token),
+            _ => Err(AppError::OperationInProgress),
+        };
+        match result {
+            Ok(()) => self.complete(operation),
+            Err(error) => self.fail(operation, &error),
+        }
+    }
+
+    fn decode(
+        &self,
+        operation: &OperationId,
+        request: &crate::DecodeAnalyserRequest,
+        token: &CancellationToken,
+    ) -> Result<()> {
+        token.check()?;
+        request.trace.validate()?;
+        let metadata = self.analyser(&request.analyser)?;
+        let capture = request
+            .trace
+            .captures
+            .iter()
+            .find(|capture| {
+                capture.analyser == request.analyser && capture.segment == request.segment
+            })
+            .ok_or_else(|| {
+                AppError::Analyser(format!(
+                    "missing capture bundle for analyser {} in segment {}",
+                    request.analyser, request.segment
+                ))
+            })?
+            .clone();
+        let execution = ExecutionRequest {
+            analyser: metadata,
+            run_id: request.run_id.clone(),
+            document_id: request.document_id.clone(),
+        };
+        let events = WorkerEvents {
+            context: self.context(operation, request.run_id.clone(), token),
+        };
+        let document = cardpeek_lua::decode_capture(&execution, &capture, token, &events)
+            .map_err(|error| AppError::Analyser(error.to_string()))?;
+        self.publish(operation, &request.run_id, &document);
+        Ok(())
+    }
+
+    fn replay(
+        &self,
+        operation: &OperationId,
+        request: &crate::ReplayAnalyserRequest,
+        token: &CancellationToken,
+    ) -> Result<()> {
+        token.check()?;
+        request.trace.validate()?;
+        let metadata = self.analyser(&request.analyser)?;
+        if !metadata.capabilities.replay {
+            return Err(AppError::Analyser(format!(
+                "analyser {} does not support replay",
+                metadata.id
+            )));
+        }
+        let trace = request.trace.extract_segment(request.segment)?;
+        let mut session = ReplaySession::for_segment(trace, 0).map_err(|error| {
+            AppError::Analyser(format!(
+                "analyser {} segment {} replay error: {error}",
+                request.analyser, request.segment
+            ))
+        })?;
+        session.connect().map_err(|error| {
+            AppError::Analyser(format!(
+                "analyser {} segment {} replay error: {error}",
+                request.analyser, request.segment
+            ))
+        })?;
+        let execution = ExecutionRequest {
+            analyser: metadata,
+            run_id: request.run_id.clone(),
+            document_id: request.document_id.clone(),
+        };
+        let events = WorkerEvents {
+            context: self.context(operation, request.run_id.clone(), token),
+        };
+        let mut host = OfflineHost {
+            session,
+            token: token.clone(),
+            operation: operation.clone(),
+            runtime: self,
+            analyser: request.analyser.clone(),
+            segment: request.segment,
+        };
+        let current_record = host.current_atr_record();
+        let mut runtime_host = RuntimeCardHost {
+            host: &mut host,
+            protocol: Protocol::T1,
+            capabilities: SessionCapabilities {
+                extended_apdus: true,
+            },
+            current_record,
+        };
+        let document = cardpeek_lua::execute(&execution, &mut runtime_host, &events)
+            .map_err(|error| AppError::Analyser(error.to_string()))?;
+        self.publish(operation, &request.run_id, &document);
+        Ok(())
+    }
+
+    fn analyser(&self, id: &str) -> Result<AnalyserMetadata> {
+        lock_unpoisoned(&self.context.analysers)
+            .get(id)
+            .cloned()
+            .ok_or_else(|| AppError::AnalyserNotFound(id.into()))
+    }
+
+    fn context(
+        &self,
+        operation: &OperationId,
+        run_id: RunId,
+        token: &CancellationToken,
+    ) -> AnalyserContext {
+        AnalyserContext::new(
+            operation.clone(),
+            run_id,
+            token.clone(),
+            self.context.subscribers.clone(),
+            self.context.sequence.clone(),
+            self.context.interactions.clone(),
+            self.context.interaction_timeout,
+        )
+    }
+
+    fn publish(&self, operation: &OperationId, run_id: &RunId, document: &ResultDocument) {
+        lock_unpoisoned(&self.context.documents).insert(run_id.clone(), Arc::new(document.clone()));
+        self.emit(Event::new(
+            operation.clone(),
+            EventKind::DocumentPublished {
+                run_id: run_id.clone(),
+                revision: document.revision,
+            },
+        ));
+    }
+
+    fn complete(&self, operation: &OperationId) {
+        if self
+            .context
+            .shared
+            .finish(operation, OperationStatus::Completed)
+        {
+            self.emit(Event::new(
+                operation.clone(),
+                EventKind::OperationCompleted {
+                    operation: operation.clone(),
+                },
+            ));
+        }
+    }
+
+    fn fail(&self, operation: &OperationId, error: &AppError) {
+        let cancelled = is_cancellation(error)
+            || self
+                .context
+                .shared
+                .operation(operation)
+                .is_some_and(|operation| operation.status == OperationStatus::Cancelling);
+        let status = if cancelled {
+            OperationStatus::Cancelled
+        } else {
+            OperationStatus::Failed
+        };
+        if self.context.shared.finish(operation, status) {
+            let kind = if cancelled {
+                EventKind::OperationCancelled {
+                    operation: operation.clone(),
+                }
+            } else {
+                EventKind::OperationFailed {
+                    operation: operation.clone(),
+                    error: error.to_string(),
+                }
+            };
+            self.emit(Event::new(operation.clone(), kind));
+        }
+    }
+
+    fn emit(&self, event: Event) {
+        emit_to(&self.context.subscribers, &self.context.sequence, event);
+    }
+}
+
+struct OfflineHost<'a> {
+    session: ReplaySession,
+    token: CancellationToken,
+    operation: OperationId,
+    runtime: &'a OfflineRuntime,
+    analyser: String,
+    segment: usize,
+}
+
+impl AnalyserHost for OfflineHost<'_> {
+    fn token(&self) -> &CancellationToken {
+        &self.token
+    }
+
+    fn current_atr_record(&self) -> Option<TraceRecordId> {
+        self.session.current_reset_id().cloned()
+    }
+
+    fn atr(&self) -> Result<Atr> {
+        self.token.check()?;
+        self.session.atr().cloned().map_err(transport_error)
+    }
+
+    fn reset(&mut self, mode: ResetMode) -> Result<Atr> {
+        self.token.check()?;
+        match mode {
+            ResetMode::Cold => self.session.cold_reset().cloned(),
+            ResetMode::Warm => self.session.warm_reset().cloned(),
+        }
+        .map_err(transport_error)
+    }
+
+    fn transmit(&mut self, command: &[u8]) -> Result<ApduResponse> {
+        self.token.check()?;
+        let recorded = self
+            .session
+            .transmit_with_record(command)
+            .map_err(|error| {
+                AppError::Analyser(format!(
+                    "analyser {} segment {} missing command {}: {error}",
+                    self.analyser,
+                    self.segment,
+                    cardpeek_core::ByteString::from_bytes(command.to_vec()).to_hex()
+                ))
+            })?;
+        self.runtime.emit(Event::new(
+            self.operation.clone(),
+            EventKind::ApduExchanged {
+                session: self.operation.clone(),
+                record: recorded.record,
+                command: command.to_vec(),
+                response: recorded.response.clone(),
+            },
+        ));
+        Ok(recorded.response)
     }
 }
 

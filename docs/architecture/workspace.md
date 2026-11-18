@@ -108,18 +108,22 @@ Removal uses a discovered analyser identifier rather than an arbitrary path.
 ## cardpeek-lua
 
 This crate embeds vendored Lua 5.4 through mlua.
-It implements the CardPeek-ng Lua API.
-It does not provide CardPeek globals, Lua 5.2 emulation, or compatibility shims.
+It implements the Cardpeek-ng Lua API.
+It does not provide Cardpeek globals, Lua 5.2 emulation, or compatibility shims.
 
 Each analyser run receives:
 
 - A fresh Lua state.
 - A fresh result document.
 - An explicit script and resource root.
-- A transport session handle.
 - An interaction client.
 - A cancellation token.
 - A bounded log and event sink.
+
+Live collection and replay also receive a card session handle.
+Collection returns a versioned capture bundle for migrated analysers.
+Standalone decoding receives only the capture bundle and non-card APIs.
+It cannot access `cardpeek.card`.
 
 Global changes remain visible within a run.
 They do not contaminate later runs.
@@ -140,7 +144,7 @@ It provides:
 - Document snapshots.
 - Trace and document export.
 
-The CLI and Dioxus application depend on this crate.
+The CLI and GPUI application depend on this crate.
 They do not directly own PC/SC or Lua state.
 
 ## cardpeek-cli
@@ -159,17 +163,21 @@ Interactive prompts use the same interaction protocol as the desktop frontend.
 
 ## cardpeek-desktop
 
-The desktop application uses Dioxus.
+The desktop application uses GPUI.
+Its view has a navigation rail and four independent workspaces.
+Editable fields use native GPUI text input and input-method support.
 
-Its first release includes:
+A status bar at the bottom shows the latest status message or error.
+The History button expands a scrollable list of previous notifications.
+The application retains the latest 100 notifications.
+The history can be cleared without changing the analyser activity log.
 
-- Reader selection.
-- Connection status.
-- Analyser discovery and selection.
-- Analyser progress and logs.
-- Result tree navigation and search.
-- Question and text-input dialogs.
-- File selection.
-- Document and trace export.
+Reader owns physical PC/SC connection state, current-card details, manual APDUs, and current-capture export.
+Analysis selects the live card or a trace segment and exposes one explicit collection, decode, or replay action.
+Trace provides hardware-independent record inspection, search, segment filtering, and export.
+Library manages trusted analyser scripts and displays their static capabilities.
+Result trees, run details, logs, progress, and exchanges remain available in Analysis.
+Navigation and trace loading do not change the physical session.
 
-Blocking PC/SC and Lua work never runs on the Dioxus UI executor.
+Blocking PC/SC and Lua work never runs on the GPUI UI executor.
+A timer polls pending application messages and notifies the view only when work is available.

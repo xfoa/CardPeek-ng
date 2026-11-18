@@ -4,7 +4,72 @@ use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
 
-use crate::{ApduResponse, Atr, StatusWord, TraceRecordId};
+use crate::{ApduResponse, Atr, ByteString, StatusWord, TraceRecordId};
+
+/// One analyser-defined captured byte string and its source record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapturedValue {
+    /// Unique name within the capture bundle.
+    pub name: String,
+    /// Captured native byte string.
+    pub bytes: ByteString,
+    /// Source trace record.
+    pub source: TraceRecordId,
+}
+
+/// Versioned analyser output retained with a trace.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureBundle {
+    /// Stable analyser identifier.
+    pub analyser: String,
+    /// Analyser version used for collection.
+    pub analyser_version: String,
+    /// Analyser-defined capture schema.
+    pub capture_schema: String,
+    /// Zero-based reset segment index.
+    pub segment: usize,
+    /// Ordered captured values.
+    pub values: Vec<CapturedValue>,
+}
+
+impl CaptureBundle {
+    /// Creates an empty capture bundle.
+    #[must_use]
+    pub fn new(
+        analyser: impl Into<String>,
+        analyser_version: impl Into<String>,
+        capture_schema: impl Into<String>,
+        segment: usize,
+    ) -> Self {
+        Self {
+            analyser: analyser.into(),
+            analyser_version: analyser_version.into(),
+            capture_schema: capture_schema.into(),
+            segment,
+            values: Vec::new(),
+        }
+    }
+}
+
+/// One reset-delimited trace segment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TraceSegment<'a> {
+    /// Zero-based segment index.
+    pub index: usize,
+    /// Records before the first reset, or from one reset up to the next reset.
+    pub records: &'a [TraceRecord],
+}
+
+impl<'a> TraceSegment<'a> {
+    /// Returns the reset at the start of this segment, if present.
+    #[must_use]
+    pub fn reset(&self) -> Option<&'a TraceRecord> {
+        match self.records.first() {
+            Some(record @ TraceRecord::Reset { .. }) => Some(record),
+            _ => None,
+        }
+    }
+}
 
 /// One reset or command exchange in a trace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +116,7 @@ pub enum ResetMode {
 }
 
 /// Current native trace schema version.
-pub const TRACE_SCHEMA_VERSION: u32 = 1;
+pub const TRACE_SCHEMA_VERSION: u32 = 2;
 
 /// An ordered native trace document.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +125,9 @@ pub struct TraceDocument {
     pub schema_version: u32,
     /// Reset and command records in capture order.
     pub records: Vec<TraceRecord>,
+    /// Analyser capture bundles produced during live collection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captures: Vec<CaptureBundle>,
 }
 
 impl TraceDocument {
@@ -69,6 +137,7 @@ impl TraceDocument {
         Self {
             schema_version: TRACE_SCHEMA_VERSION,
             records: Vec::new(),
+            captures: Vec::new(),
         }
     }
 
@@ -99,6 +168,61 @@ impl TraceDocument {
         id
     }
 
+    /// Returns reset-delimited segments, including commands before the first reset.
+    #[must_use]
+    pub fn segments(&self) -> Vec<TraceSegment<'_>> {
+        let mut segments = Vec::new();
+        let mut start = 0;
+        let mut index = 0;
+        for (position, record) in self.records.iter().enumerate() {
+            if matches!(record, TraceRecord::Reset { .. }) {
+                if position > start || !segments.is_empty() {
+                    segments.push(TraceSegment {
+                        index,
+                        records: &self.records[start..position],
+                    });
+                    index += 1;
+                }
+                start = position;
+            }
+        }
+        if start < self.records.len() || segments.is_empty() {
+            segments.push(TraceSegment {
+                index,
+                records: &self.records[start..],
+            });
+        }
+        segments
+    }
+
+    /// Returns one reset-delimited segment.
+    #[must_use]
+    pub fn segment(&self, index: usize) -> Option<TraceSegment<'_>> {
+        self.segments()
+            .into_iter()
+            .find(|segment| segment.index == index)
+    }
+
+    /// Extracts one segment while retaining its original record identifiers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the segment does not exist.
+    pub fn extract_segment(&self, index: usize) -> Result<Self, CoreError> {
+        let segment = self.segment(index).ok_or_else(|| {
+            CoreError::InvalidDocument(format!("trace segment {index} does not exist"))
+        })?;
+        let mut trace = Self::new();
+        trace.records = segment.records.to_vec();
+        trace.captures = self
+            .captures
+            .iter()
+            .filter(|capture| capture.segment == index)
+            .cloned()
+            .collect();
+        Ok(trace)
+    }
+
     /// Returns a copy suitable for sharing with sensitive values redacted.
     ///
     /// Command headers, response status words, record order, and reset modes remain.
@@ -119,6 +243,11 @@ impl TraceDocument {
                 }
             }
         }
+        for capture in &mut sanitised.captures {
+            for value in &mut capture.values {
+                value.bytes = ByteString::new(value.bytes.width());
+            }
+        }
         sanitised
     }
 
@@ -127,17 +256,22 @@ impl TraceDocument {
             .unwrap_or_else(|_| unreachable!("generated trace identifiers are nonempty"))
     }
 
-    /// Validates the schema version and record identifiers.
+    /// Validates schema versions, record identifiers, and capture provenance.
     ///
     /// # Errors
     ///
-    /// Returns an error for an unsupported schema or duplicate record identifiers.
+    /// Returns an error for unsupported schemas or invalid capture bundles.
     pub fn validate(&self) -> Result<(), CoreError> {
-        if self.schema_version != TRACE_SCHEMA_VERSION {
+        if !matches!(self.schema_version, 1 | TRACE_SCHEMA_VERSION) {
             return Err(CoreError::InvalidDocument(format!(
                 "unsupported trace schema version {}",
                 self.schema_version
             )));
+        }
+        if self.schema_version == 1 && !self.captures.is_empty() {
+            return Err(CoreError::InvalidDocument(
+                "trace schema 1 cannot contain capture bundles".into(),
+            ));
         }
         let mut ids = HashSet::new();
         for record in &self.records {
@@ -146,6 +280,46 @@ impl TraceDocument {
                     "duplicate trace record identifier {}",
                     record.id()
                 )));
+            }
+        }
+        for capture in &self.captures {
+            for (field, value) in [
+                ("analyser", &capture.analyser),
+                ("analyser version", &capture.analyser_version),
+                ("capture schema", &capture.capture_schema),
+            ] {
+                if value.trim().is_empty() {
+                    return Err(CoreError::InvalidDocument(format!(
+                        "capture bundle {field} cannot be empty"
+                    )));
+                }
+            }
+            let Some(segment) = self.segment(capture.segment) else {
+                return Err(CoreError::InvalidDocument(format!(
+                    "capture bundle segment {} does not exist",
+                    capture.segment
+                )));
+            };
+            let records: HashSet<_> = segment.records.iter().map(TraceRecord::id).collect();
+            let mut names = HashSet::new();
+            for value in &capture.values {
+                if value.name.trim().is_empty() {
+                    return Err(CoreError::InvalidDocument(
+                        "captured value name cannot be empty".into(),
+                    ));
+                }
+                if !names.insert(&value.name) {
+                    return Err(CoreError::InvalidDocument(format!(
+                        "duplicate captured value name {}",
+                        value.name
+                    )));
+                }
+                if !records.contains(&value.source) {
+                    return Err(CoreError::InvalidDocument(format!(
+                        "captured value {} source {} is not in segment {}",
+                        value.name, value.source, capture.segment
+                    )));
+                }
             }
         }
         Ok(())
@@ -203,6 +377,108 @@ impl Default for TraceDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_one_fixture_round_trips_exactly() {
+        let input = r#"{
+  "schema_version": 1,
+  "records": [
+    {
+      "kind": "reset",
+      "id": "record-0001",
+      "mode": "cold",
+      "atr": {
+        "width": 8,
+        "elements": [
+          59,
+          0
+        ]
+      }
+    }
+  ]
+}"#;
+        let trace = TraceDocument::from_json(input).unwrap();
+        assert_eq!(trace.captures, Vec::new());
+        assert_eq!(trace.to_json().unwrap(), input);
+    }
+
+    #[test]
+    fn capture_bundle_round_trips_and_sanitisation_clears_bytes() {
+        let mut trace = TraceDocument::new();
+        let reset = trace.record_reset(ResetMode::Cold, Atr::from_hex("3B00").unwrap());
+        trace.captures.push(CaptureBundle {
+            analyser: "atr".into(),
+            analyser_version: "1.0.0".into(),
+            capture_schema: "atr/v1".into(),
+            segment: 0,
+            values: vec![CapturedValue {
+                name: "atr".into(),
+                bytes: ByteString::from_hex(8, "3B00").unwrap(),
+                source: reset,
+            }],
+        });
+        let decoded = TraceDocument::from_json(&trace.to_json().unwrap()).unwrap();
+        assert_eq!(decoded, trace);
+        assert!(!decoded.captures[0].values[0].bytes.is_empty());
+        assert!(trace.sanitised().captures[0].values[0].bytes.is_empty());
+    }
+
+    #[test]
+    fn rejects_invalid_capture_bundles() {
+        let mut trace = TraceDocument::new();
+        let reset = trace.record_reset(ResetMode::Cold, Atr::from_hex("3B00").unwrap());
+        let value = CapturedValue {
+            name: "atr".into(),
+            bytes: ByteString::from_hex(8, "3B00").unwrap(),
+            source: reset,
+        };
+        trace.captures.push(CaptureBundle {
+            analyser: "atr".into(),
+            analyser_version: "1".into(),
+            capture_schema: "atr/v1".into(),
+            segment: 0,
+            values: vec![value.clone(), value],
+        });
+        assert!(
+            trace
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate")
+        );
+        trace.captures[0].values.pop();
+        trace.captures[0].segment = 1;
+        assert!(
+            trace
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("does not exist")
+        );
+        trace.captures[0].segment = 0;
+        trace.captures[0].values[0].source = TraceRecordId::new("other").unwrap();
+        assert!(
+            trace
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("not in segment")
+        );
+    }
+
+    #[test]
+    fn segments_include_commands_before_first_reset() {
+        let mut trace = TraceDocument::new();
+        trace.record_command(vec![0], vec![1], StatusWord::NORMAL_PROCESSING);
+        trace.record_reset(ResetMode::Cold, Atr::from_hex("3B00").unwrap());
+        trace.record_command(vec![1], vec![2], StatusWord::NORMAL_PROCESSING);
+        trace.record_reset(ResetMode::Warm, Atr::from_hex("3B01").unwrap());
+        assert_eq!(trace.segments().len(), 3);
+        assert!(trace.segment(0).unwrap().reset().is_none());
+        assert_eq!(trace.segment(0).unwrap().records.len(), 1);
+        assert_eq!(trace.segment(1).unwrap().records.len(), 2);
+        assert_eq!(trace.extract_segment(2).unwrap().records.len(), 1);
+    }
 
     #[test]
     fn sanitised_trace_preserves_structure_and_removes_values() {

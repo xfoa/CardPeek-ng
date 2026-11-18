@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-desktop"
-description = "Dioxus desktop frontend for CardPeek-ng"
+description = "GPUI desktop frontend for Cardpeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,10 +14,18 @@ cardpeek-core = { path = "../cardpeek-core" }
 cardpeek-pcsc = { path = "../cardpeek-pcsc" }
 cardpeek-replay = { path = "../cardpeek-replay" }
 cardpeek-transport = { path = "../cardpeek-transport" }
-dioxus.workspace = true
+directories.workspace = true
+gpui.workspace = true
 rfd.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+unicode-segmentation.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+image = { version = "0.25.6", default-features = false, features = ["png"] }
+x11rb = "0.13.2"
+
+[build-dependencies]
+embed-resource = "3.0.12"
 
 [dev-dependencies]
 tempfile = "3.23.0"

@@ -1,9 +1,9 @@
 schema_version = 1
 fixture_id = "atr-001"
-description = "CardPeek-ng ATR analyser used by the CLI replay vertical slice"
+description = "Cardpeek-ng ATR analyser used by the CLI replay vertical slice"
 origin = "synthetic"
-created_by = "CardPeek-ng contributors"
-source_project = "CardPeek-ng"
+created_by = "Cardpeek-ng contributors"
+source_project = "Cardpeek-ng"
 source_url = ""
 source_revision = ""
 source_version = "1.0.0"

@@ -3,5 +3,5 @@
 mod replay;
 mod trace;
 
-pub use replay::{ReplayError, ReplaySession};
+pub use replay::{RecordedResponse, ReplayError, ReplaySession};
 pub use trace::{TraceError, record_id, response};

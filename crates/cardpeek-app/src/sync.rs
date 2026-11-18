@@ -357,6 +357,30 @@ impl<T> CommandQueue<T> {
         }
     }
 
+    pub(crate) fn pop_timeout(&self, timeout: Duration) -> Option<T> {
+        let mut state = lock_unpoisoned(&self.state);
+        loop {
+            if let Some(value) = state.values.pop_front() {
+                return Some(value);
+            }
+            if state.closed {
+                return None;
+            }
+            let (next, result) = self
+                .changed
+                .wait_timeout(state, timeout)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = next;
+            if result.timed_out() {
+                return None;
+            }
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        lock_unpoisoned(&self.state).closed
+    }
+
     pub(crate) fn close(&self) {
         let mut state = lock_unpoisoned(&self.state);
         state.closed = true;

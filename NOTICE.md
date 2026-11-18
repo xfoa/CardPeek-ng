@@ -1,11 +1,11 @@
 # Notices and attribution
 
-CardPeek-ng is a new Rust implementation.
-It is not the original [CardPeek](https://github.com/l1l1/cardpeek) application, and is not related to nor endorsed by the original CardPeek authors in any way.
+Cardpeek-ng is a new Rust implementation.
+It is not the original [Cardpeek](https://github.com/l1l1/cardpeek) application, and is not related to nor endorsed by the original Cardpeek authors in any way.
 
-## CardPeek-ng
+## Cardpeek-ng
 
-Copyright (C) 2026 CardPeek-ng contributors.
+Copyright (C) 2026 Cardpeek-ng contributors.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -23,12 +23,12 @@ If not, see <https://www.gnu.org/licenses/>.
 
 The full license is in [`LICENSE`](LICENSE).
 
-## Third-party CardPeek material
+## Third-party Cardpeek material
 
-CardPeek-ng does not support CardPeek Lua analysers, XML documents, or trace captures.
-No CardPeek analyser, source file, or captured notice is included.
+Cardpeek-ng does not support Cardpeek Lua analysers, XML documents, or trace captures.
+No Cardpeek analyser, source file, or captured notice is included.
 
-Before importing any third-party CardPeek material:
+Before importing any third-party Cardpeek material:
 
 1. Record the upstream project and exact source location.
 2. Record the upstream revision or release and retrieval date.
@@ -38,10 +38,23 @@ Before importing any third-party CardPeek material:
 6. Mark modifications and their dates when required.
 7. Add third-party license texts required for distribution.
 8. Update this notice file and the relevant package documentation.
-9. Write new analysers against the CardPeek-ng Lua API.
+9. Write new analysers against the Cardpeek-ng Lua API.
 
 Do not remove or replace upstream notices.
 Do not imply endorsement by upstream authors.
+
+## Vendored Blade Graphics dependency
+
+The `vendor/blade-graphics` directory contains Blade Graphics 0.7.1 from <https://github.com/kvark/blade>.
+Its MIT license is preserved in that directory.
+The Vulkan adapter selection keeps Intel presentation when the NVIDIA kernel module is absent.
+The PRIME file alone does not prove that an NVIDIA device is present.
+
+## Vendored xattr dependency
+
+The `vendor/xattr` directory contains xattr 0.2.3 from <https://github.com/Stebalien/xattr>.
+Its MIT and Apache-2.0 license texts are preserved in that directory.
+The Linux and BSD `ENOATTR` mapping uses `ENODATA` because those systems do not expose the macOS `ENOATTR` constant.
 
 ## Dependencies
 

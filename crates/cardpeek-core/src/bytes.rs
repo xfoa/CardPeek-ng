@@ -6,7 +6,7 @@ use crate::CoreError;
 
 /// A sequence of 1-bit, 4-bit, or 8-bit elements.
 ///
-/// Conversion to a wider width is left aligned, matching legacy `CardPeek`.
+/// Conversion to a wider width is left aligned, matching legacy `Cardpeek`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ByteString {
     width: u8,

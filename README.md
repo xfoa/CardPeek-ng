@@ -1,11 +1,11 @@
-# CardPeek-ng
+# Cardpeek-ng
 
-CardPeek-ng is a tool for reading and analysing smart cards, inspired by [CardPeek](https://github.com/l1l1/cardpeek).
+Cardpeek-ng is a tool for reading and analysing smart cards, inspired by [Cardpeek](https://github.com/l1l1/cardpeek).
 It will provide a reusable engine, a command-line application, and a desktop application.
-It will support PC/SC readers, Lua analysers, and replay of CardPeek-ng JSON traces.
-It will not provide compatibility with CardPeek Lua analysers, XML documents, or trace captures.
+It will support PC/SC readers, Lua analysers, and replay of Cardpeek-ng JSON traces.
+It will not provide compatibility with Cardpeek Lua analysers, XML documents, or trace captures.
 
-The application core is written in Rust, and the UI uses Dioxus.
+The application core is written in Rust, and the desktop UI uses GPUI.
 The workspace includes core domain types, versioned JSON documents and traces, trace replay, and native PC/SC transport.
 The application engine provides bounded command and event channels, dedicated session workers, interaction correlation, deterministic cancellation, and native JSON exports.
 The CLI and desktop application run Lua analysers through native PC/SC readers or replay.
@@ -54,24 +54,52 @@ Start the desktop application:
 cargo run -p cardpeek-desktop
 ```
 
-The application discovers native readers, the replay source, and installed analysers on startup.
-Use Import Lua files to add analysers and Remove selected to remove the selected analyser.
-Select a reader, an analyser, then Connect and Run analyser.
-Use Send APDU to transmit exact hexadecimal command bytes.
-The inspector shows progress, logs, APDU exchanges, and a searchable result tree.
-The export dialog writes documents and raw or sanitised traces to an explicit destination.
-Disconnect before exporting the session trace.
-Native file dialogs run outside the Dioxus UI executor.
-The desktop UI uses Dioxus Blitz with WGPU and Winit.
-It does not use an OS WebView.
+The application discovers native readers and installed analysers on startup.
+The navigation rail selects four independent workspaces:
+Reader, Analysis, Trace, and Library.
+Navigation does not connect or disconnect hardware.
 
-An optional argument selects a different replay trace:
+Reader manages the physical PC/SC reader and current card.
+Use Send APDU to transmit exact hexadecimal command bytes.
+Reader shows the current capture and session exchanges.
+Export the current capture without disconnecting.
+
+Analysis uses either the current physical card or one reset-delimited segment from an open trace.
+Live analysis requires a connected PC/SC reader with a card.
+A trace segment supports explicit decoding or replay.
+Decoding requires a compatible captured-data bundle.
+Replay never uses hardware or records outside the selected segment.
+Analysis shows progress, logs, APDU exchanges, and a searchable result tree.
+
+Trace opens, searches, filters, and exports a trace without using a reader.
+Use Decode in Analysis to select a segment and choose an available operation.
+Trace loading does not create a replay session or start an analyser.
+An optional argument opens a trace in this workspace:
 
 ```sh
 cargo run -p cardpeek-desktop -- tests/fixtures/traces/atr-synthetic-001.json
 ```
 
 On Debian or Ubuntu, desktop builds also require GTK 3 development files for native file dialogs.
+
+The application icon is [`resources/icon.png`](resources/icon.png).
+On X11, the application sets the window icon directly when it starts.
+No installation is needed for this path.
+On Wayland, install the icon and desktop entry to enable it in the application launcher and window switcher:
+
+```sh
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+install -Dm644 resources/icon.png "$XDG_DATA_HOME/icons/hicolor/256x256/apps/cardpeek-ng.png"
+install -Dm644 resources/cardpeek-ng.desktop "$XDG_DATA_HOME/applications/cardpeek-ng.desktop"
+gtk-update-icon-cache -f -t "$XDG_DATA_HOME/icons/hicolor"
+update-desktop-database "$XDG_DATA_HOME/applications"
+```
+
+Restart the application after installation.
+If GNOME Shell still shows the old icon, restart the shell or log out and back in.
+
+The desktop entry expects `cardpeek-desktop` on `PATH`.
+On Windows, the build script embeds the equivalent icon in the executable.
 
 ## CLI real-reader workflow
 
@@ -168,10 +196,10 @@ Lua analysers are trusted code.
 They are not sandboxed.
 Card data, APDU logs, and raw traces are sensitive by default.
 
-CardPeek-ng is licensed under GPL-3.0-or-later.
+Cardpeek-ng is licensed under GPL-3.0-or-later.
 See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).
 Fixture rules are in [`tests/fixtures/README.md`](tests/fixtures/README.md).
 
 ---
 
-[![CI](https://github.com/xfoa/CardPeek-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/xfoa/CardPeek-ng/actions/workflows/ci.yml)
+[![CI](https://github.com/xfoa/Cardpeek-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/xfoa/Cardpeek-ng/actions/workflows/ci.yml)

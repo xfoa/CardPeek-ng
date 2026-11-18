@@ -1,6 +1,5 @@
-//! Native Dioxus desktop entry point.
+//! Native GPUI desktop entry point.
 
-use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -8,13 +7,8 @@ use std::rc::Rc;
 use cardpeek_analyser::AnalyserLibrary;
 use cardpeek_app::PcscBackend;
 use cardpeek_core::TraceDocument;
-use cardpeek_desktop::{App, Controller, DesktopBackend, ReplayBackend};
-use dioxus::native::{Config, LogicalSize, WindowAttributes};
-use dioxus::prelude::*;
-
-thread_local! {
-    static CONTROLLER: RefCell<Option<Rc<Controller<DesktopBackend>>>> = const { RefCell::new(None) };
-}
+use cardpeek_desktop::preferences::Preferences;
+use cardpeek_desktop::{Controller, DesktopBackend, run};
 
 fn main() -> ExitCode {
     match launch() {
@@ -26,44 +20,21 @@ fn main() -> ExitCode {
     }
 }
 
-fn app() -> Element {
-    CONTROLLER.with(|controller| {
-        let controller = controller
-            .borrow()
-            .clone()
-            .expect("desktop controller is installed");
-        rsx! { App { controller } }
-    })
-}
-
 fn launch() -> Result<(), String> {
     let mut arguments = std::env::args_os().skip(1);
-    let trace_path = arguments.next().map_or_else(
-        || PathBuf::from("tests/fixtures/traces/atr-synthetic-001.json"),
-        PathBuf::from,
-    );
+    let trace_path = arguments.next().map(PathBuf::from);
     if arguments.next().is_some() {
         return Err("usage: cardpeek-desktop [TRACE_JSON]".into());
     }
     let analyser_library = AnalyserLibrary::user().map_err(|error| error.to_string())?;
-    let reader_name = trace_path
-        .file_stem()
-        .and_then(std::ffi::OsStr::to_str)
-        .map_or_else(|| "Replay".into(), |stem| format!("Replay: {stem}"));
-    let trace = TraceDocument::load(&trace_path).map_err(|error| error.to_string())?;
-    let replay = ReplayBackend::new(trace, reader_name);
-    let pcsc = PcscBackend::establish().ok();
-    let backend = DesktopBackend::new(replay, pcsc);
-    let controller = Rc::new(Controller::new(backend, analyser_library));
-    CONTROLLER.with(|current| *current.borrow_mut() = Some(controller));
-    let config = Config::new().with_window_attributes(
-        WindowAttributes::default()
-            .with_title("CardPeek-ng")
-            .with_inner_size(LogicalSize::new(1280, 820))
-            .with_min_inner_size(LogicalSize::new(900, 650)),
-    );
-    LaunchBuilder::custom(dioxus::native::launch_cfg)
-        .with_cfg(config)
-        .launch(app);
+    if let Some(path) = &trace_path {
+        TraceDocument::load(path).map_err(|error| error.to_string())?;
+    }
+    let directories = directories::ProjectDirs::from("", "", "cardpeek-ng")
+        .ok_or_else(|| "the platform configuration directory is unavailable".to_string())?;
+    let preferences = Preferences::load(directories.config_dir().join("desktop-mode"));
+    let backend = DesktopBackend::new(None, PcscBackend::establish().ok());
+    let controller = Rc::new(Controller::for_desktop(backend, analyser_library));
+    run(controller, preferences, trace_path);
     Ok(())
 }

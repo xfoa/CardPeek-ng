@@ -12,7 +12,7 @@ use std::{
 use cardpeek_core::{
     ApduCommand, ApduResponse, Atr, Protocol, ReaderInfo, ResetMode, TransportKind,
 };
-use cardpeek_transport::{CardSession, SessionCapabilities};
+use cardpeek_transport::{CardSession, CardStatus, SessionCapabilities};
 use pcsc::{Card, Context, Disposition, Protocols, ReaderState, Scope, ShareMode, State};
 use thiserror::Error;
 
@@ -403,6 +403,8 @@ impl PcscContext {
         let protocol = status.protocol2().map_or(Protocol::Other, map_protocol);
         let atr = Atr::new(status.atr().to_vec());
         Ok(PcscSession {
+            context: self.context.clone(),
+            reader,
             card: Some(card),
             mode,
             protocol,
@@ -410,6 +412,41 @@ impl PcscContext {
             response_limit,
             cancellation,
         })
+    }
+
+    /// Connects to a reader, with or without a card.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reader or its status is unavailable.
+    pub fn connect_reader(
+        &self,
+        reader: &str,
+        response_limit: usize,
+    ) -> Result<PcscSession, PcscError> {
+        if response_limit < 2 {
+            return Err(PcscError::new(
+                PcscOperation::Connect,
+                PcscErrorKind::ResponseTooLarge {
+                    limit: response_limit,
+                },
+            ));
+        }
+        let reader = CString::new(reader).map_err(|_| {
+            PcscError::new(PcscOperation::Connect, PcscErrorKind::InvalidReaderName)
+        })?;
+        let mut session = PcscSession {
+            context: self.context.clone(),
+            reader,
+            card: None,
+            mode: ConnectionMode::Shared,
+            protocol: Protocol::Other,
+            atr: Atr::new(Vec::new()),
+            response_limit,
+            cancellation: CancellationToken::new(),
+        };
+        let _ = session.poll_status()?;
+        Ok(session)
     }
 
     fn reader_has_card(&self, reader: &CStr) -> Result<bool, PcscError> {
@@ -421,8 +458,10 @@ impl PcscContext {
     }
 }
 
-/// One owned native PC/SC card connection.
+/// One owned native PC/SC reader and optional card connection.
 pub struct PcscSession {
+    context: Context,
+    reader: CString,
     card: Option<Card>,
     mode: ConnectionMode,
     protocol: Protocol,
@@ -446,7 +485,40 @@ impl PcscSession {
     fn card(&self, operation: PcscOperation) -> Result<&Card, PcscError> {
         self.card
             .as_ref()
-            .ok_or_else(|| PcscError::new(operation, PcscErrorKind::ReaderUnavailable))
+            .ok_or_else(|| PcscError::new(operation, PcscErrorKind::NoCard))
+    }
+
+    fn poll_status(&mut self) -> Result<CardStatus, PcscError> {
+        self.cancellation.check(PcscOperation::Status)?;
+        let mut states = [ReaderState::new(self.reader.clone(), State::UNAWARE)];
+        self.context
+            .get_status_change(Duration::ZERO, &mut states)
+            .map_err(|error| PcscError::native(PcscOperation::Status, error))?;
+        if !states[0].event_state().contains(State::PRESENT) {
+            if let Some(card) = self.card.take() {
+                let _ = card.disconnect(Disposition::LeaveCard);
+            }
+            self.protocol = Protocol::Other;
+            self.atr = Atr::new(Vec::new());
+            return Ok(CardStatus {
+                card_present: false,
+                protocol: self.protocol,
+                atr: self.atr.clone(),
+            });
+        }
+        if self.card.is_none() {
+            let card = self
+                .context
+                .connect(&self.reader, self.mode.into(), Protocols::ANY)
+                .map_err(|error| PcscError::native(PcscOperation::Connect, error))?;
+            self.card = Some(card);
+        }
+        self.refresh_status()?;
+        Ok(CardStatus {
+            card_present: true,
+            protocol: self.protocol,
+            atr: self.atr.clone(),
+        })
     }
 
     fn card_mut(&mut self, operation: PcscOperation) -> Result<&mut Card, PcscError> {
@@ -481,7 +553,14 @@ impl CardSession for PcscSession {
 
     fn atr(&self) -> Result<Atr, Self::Error> {
         self.cancellation.check(PcscOperation::Status)?;
+        if self.card.is_none() {
+            return Err(PcscError::new(PcscOperation::Status, PcscErrorKind::NoCard));
+        }
         Ok(self.atr.clone())
+    }
+
+    fn status(&mut self) -> Result<CardStatus, Self::Error> {
+        self.poll_status()
     }
 
     fn reset(&mut self, mode: ResetMode) -> Result<Atr, Self::Error> {

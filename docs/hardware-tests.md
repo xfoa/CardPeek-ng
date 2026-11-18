@@ -65,17 +65,20 @@ Repeat with `--trace-mode sanitised` and confirm that ATR, command data, and res
 
 A new user library receives the bundled analysers automatically.
 Use Import Lua files in the desktop application to install additional analysers.
-Then start the desktop application with its replay source:
+Then start the desktop application:
 
 ```sh
 cargo run -p cardpeek-desktop
 ```
 
-Select the native PC/SC reader and connect.
-Run the ATR analyser and confirm that the document and logs match the CLI result.
-Use Send APDU with the safe command from `CARDPEEK_PCSC_SHORT_APDU`.
+Select the native PC/SC reader in Reader and connect.
+Select Live card and the ATR analyser in Analysis.
+Run collection and confirm that the document and logs match the CLI result.
+Use Send APDU in Reader with the safe command from `CARDPEEK_PCSC_SHORT_APDU`.
 Inspect the exact command, response data, and status word.
-Disconnect and export raw and sanitised traces.
+Export raw and sanitised captures before disconnecting.
+Open the capture in Trace and decode its ATR segment in Analysis.
+Confirm that the offline result matches the live result.
 Review both files before retaining or sharing them.
 
 ## Cancellation
@@ -109,7 +112,7 @@ Reconnect and confirm that the session recovers through a new connection.
 
 Hold an incompatible exclusive connection with another PC/SC client.
 Confirm that a new connection returns a typed `SharingViolation` error.
-Disconnect CardPeek-ng and confirm that the other client can connect.
+Disconnect Cardpeek-ng and confirm that the other client can connect.
 
 Repeat discovery with no card, with an inserted card, and after reader removal.
 Confirm that discovery reports the current card-presence state.

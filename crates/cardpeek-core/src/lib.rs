@@ -1,4 +1,4 @@
-//! APDU, card, document, trace, and error types for `CardPeek` NG.
+//! APDU, card, document, trace, and error types for `Cardpeek` NG.
 
 mod apdu;
 mod bytes;
@@ -16,4 +16,7 @@ pub use document::{DOCUMENT_SCHEMA_VERSION, NodeValue, Provenance, ResultDocumen
 pub use error::CoreError;
 pub use ids::{DocumentId, NodeId, RunId, TraceRecordId};
 pub use status::StatusWord;
-pub use trace::{ResetMode, TRACE_SCHEMA_VERSION, TraceDocument, TraceRecord};
+pub use trace::{
+    CaptureBundle, CapturedValue, ResetMode, TRACE_SCHEMA_VERSION, TraceDocument, TraceRecord,
+    TraceSegment,
+};

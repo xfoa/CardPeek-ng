@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-app"
-description = "Application orchestration for CardPeek-ng"
+description = "Application orchestration for Cardpeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,12 +12,10 @@ cardpeek-analyser = { path = "../cardpeek-analyser" }
 cardpeek-core = { path = "../cardpeek-core" }
 cardpeek-lua = { path = "../cardpeek-lua" }
 cardpeek-pcsc = { path = "../cardpeek-pcsc" }
+cardpeek-replay = { path = "../cardpeek-replay" }
 cardpeek-transport = { path = "../cardpeek-transport" }
 serde.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
-cardpeek-replay = { path = "../cardpeek-replay" }
 
 [lints]
 workspace = true

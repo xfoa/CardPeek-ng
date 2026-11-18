@@ -8,11 +8,11 @@
 - Replay transport tests.
 - Native JSON document and trace round-trip tests.
 - Lua API tests.
-- Tests that CardPeek globals and compatibility shims are absent.
+- Tests that Cardpeek globals and compatibility shims are absent.
 - Analyser integration tests with synthetic traces.
 - Command, event, cancellation, and interaction tests.
 - CLI snapshot tests.
-- Dioxus component and application-state tests.
+- Desktop application-state and workflow tests.
 
 ## Hardware tests
 

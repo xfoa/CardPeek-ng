@@ -1,4 +1,4 @@
-//! Command-line entry point for `CardPeek` NG.
+//! Command-line entry point for `Cardpeek` NG.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -21,7 +21,7 @@ use thiserror::Error;
 #[command(
     name = "cardpeek",
     version,
-    about = "Inspect smart cards with CardPeek-ng analysers"
+    about = "Inspect smart cards with Cardpeek-ng analysers"
 )]
 struct Arguments {
     #[command(subcommand)]

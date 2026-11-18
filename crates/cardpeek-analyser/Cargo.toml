@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-analyser"
-description = "Runtime-independent analyser contracts for CardPeek-ng"
+description = "Runtime-independent analyser contracts for Cardpeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,20 +1,20 @@
 #![allow(missing_docs)]
 
-use std::cell::RefCell;
-
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use cardpeek_analyser::AnalyserLibrary;
 use cardpeek_app::{
-    Application, CommandKind, ConnectRequest, ExportDocument, ExportTrace, RunAnalyserRequest,
-    SessionBackend,
+    Application, CommandKind, ConnectRequest, DecodeAnalyserRequest, ExportDocument,
+    ReplayAnalyserRequest, RunAnalyserRequest, SessionBackend,
 };
-use cardpeek_core::{ResetMode, TransportKind};
+use cardpeek_core::{ResetMode, TraceDocument, TransportKind};
 
-use crate::state::{DesktopState, ExportKind, ExportNotice};
+use crate::state::{AnalysisOperation, DesktopState, ExportKind, ExportNotice};
 
 pub enum UiMessage {
     Event(cardpeek_app::Event),
@@ -23,6 +23,7 @@ pub enum UiMessage {
     ExportDestination(PathBuf),
     InteractionFile(PathBuf),
     AnalyserChanged(Result<Vec<String>, String>),
+    TraceSelected(Result<(PathBuf, TraceDocument), String>),
 }
 
 pub struct Controller<B: SessionBackend> {
@@ -30,7 +31,14 @@ pub struct Controller<B: SessionBackend> {
     analyser_library: AnalyserLibrary,
     messages: Receiver<UiMessage>,
     pending_message: RefCell<Option<UiMessage>>,
+    last_reader_refresh: Cell<Option<Instant>>,
     sender: Sender<UiMessage>,
+}
+
+impl Controller<crate::DesktopBackend> {
+    pub fn for_desktop(backend: crate::DesktopBackend, analyser_library: AnalyserLibrary) -> Self {
+        Self::new(backend, analyser_library)
+    }
 }
 
 impl<B: SessionBackend> PartialEq for Controller<B> {
@@ -42,6 +50,13 @@ impl<B: SessionBackend> PartialEq for Controller<B> {
 impl<B: SessionBackend> Controller<B> {
     pub fn new(backend: B, analyser_library: AnalyserLibrary) -> Self {
         let application = Arc::new(Application::with_defaults(backend));
+        Self::from_application(application, analyser_library)
+    }
+
+    fn from_application(
+        application: Arc<Application<B>>,
+        analyser_library: AnalyserLibrary,
+    ) -> Self {
         let subscription = application.subscribe();
         let (sender, messages) = mpsc::channel();
         let event_sender = sender.clone();
@@ -57,11 +72,29 @@ impl<B: SessionBackend> Controller<B> {
             analyser_library,
             messages,
             pending_message: RefCell::new(None),
+            last_reader_refresh: Cell::new(None),
             sender,
         };
         let _ = controller.submit(CommandKind::EnumerateReaders);
         controller.refresh_analysers();
         controller
+    }
+
+    pub fn refresh_readers(&self, state: &mut DesktopState) {
+        if !state.pending.is_empty()
+            || self
+                .last_reader_refresh
+                .get()
+                .is_some_and(|last| last.elapsed() < Duration::from_secs(1))
+        {
+            return;
+        }
+        self.last_reader_refresh.set(Some(Instant::now()));
+        if let Some(operation) = self.submit(CommandKind::EnumerateReaders) {
+            state
+                .pending
+                .insert(operation, cardpeek_app::OperationKind::EnumerateReaders);
+        }
     }
 
     pub fn poll_pending(&self) -> bool {
@@ -78,15 +111,20 @@ impl<B: SessionBackend> Controller<B> {
     }
 
     pub fn poll(&self, state: &mut DesktopState) {
+        state.session = self.application.session();
         let pending = self.pending_message.take();
         for message in pending.into_iter().chain(self.messages.try_iter()) {
             match message {
-                UiMessage::Event(event) => state.apply_event(event),
+                UiMessage::Event(event) => {
+                    state.apply_event(event);
+                    self.refresh_capture(state);
+                }
                 UiMessage::Error(error)
                 | UiMessage::Export(Err(error))
-                | UiMessage::AnalyserChanged(Err(error)) => {
+                | UiMessage::AnalyserChanged(Err(error))
+                | UiMessage::TraceSelected(Err(error)) => {
                     state.errors.push(error.clone());
-                    state.notice = Some(error);
+                    state.notify_error(error);
                 }
                 UiMessage::Export(Ok(notice)) => state.export_finished(notice),
                 UiMessage::ExportDestination(path) => {
@@ -96,21 +134,36 @@ impl<B: SessionBackend> Controller<B> {
                     state.interaction_file = Some(path);
                 }
                 UiMessage::AnalyserChanged(Ok(imported)) => {
-                    state.notice = Some(if imported.is_empty() {
+                    state.notify(if imported.is_empty() {
                         "Analyser library updated.".into()
                     } else {
                         format!("Imported {}.", imported.join(", "))
                     });
                     self.refresh_analysers();
                 }
+                UiMessage::TraceSelected(Ok((path, trace))) => {
+                    state.set_trace(trace);
+                    state.trace_path = Some(path);
+                    state.notify("Trace opened. The physical session is unchanged.");
+                    state.screen = crate::state::Screen::Trace;
+                }
             }
         }
         state.session = self.application.session();
-        state.readers = self.application.readers();
+        state.readers = self
+            .application
+            .readers()
+            .into_iter()
+            .filter(|reader| reader.transport == TransportKind::Pcsc)
+            .collect();
         if state.analyser_directory.is_empty() {
             state.analyser_directory = self.analyser_library.root().display().to_string();
         }
-        if state.selected_reader.is_none() {
+        if state
+            .selected_reader
+            .as_ref()
+            .is_none_or(|selected| !state.readers.iter().any(|reader| &reader.name == selected))
+        {
             state.selected_reader = state.readers.first().map(|reader| reader.name.clone());
         }
         let analysers = self.application.analysers();
@@ -125,10 +178,26 @@ impl<B: SessionBackend> Controller<B> {
         }) {
             state.selected_analyser = state.analysers.first().map(|analyser| analyser.id.clone());
         }
+        if state.session.is_none()
+            && self.application.session().is_none()
+            && state.pending.is_empty()
+            && let Some(reader) = state.pending_connection.take()
+        {
+            self.connect(reader, state);
+        }
+        self.refresh_capture(state);
         if let Some(run_id) = state.run_id.clone()
             && let Some(document) = self.application.document_snapshot(&run_id)
         {
             state.publish_document(document);
+        }
+    }
+
+    fn refresh_capture(&self, state: &mut DesktopState) {
+        if let Some(session) = &state.session
+            && let Some(trace) = self.application.trace_snapshot(&session.id)
+        {
+            state.set_capture_trace((*trace).clone());
         }
     }
 
@@ -144,12 +213,42 @@ impl<B: SessionBackend> Controller<B> {
     }
 
     pub fn connect(&self, reader: String, state: &mut DesktopState) {
-        state.session = None;
-        let transport = state
+        let Some(reader_info) = state
             .readers
             .iter()
             .find(|candidate| candidate.name == reader)
-            .map_or(TransportKind::Replay, |reader| reader.transport);
+            .filter(|reader| reader.transport == TransportKind::Pcsc)
+        else {
+            state.notify_error("Select a physical PC/SC reader.");
+            return;
+        };
+        let transport = reader_info.transport;
+        if state.session.is_some()
+            || self.application.session().is_some()
+            || state.pending.values().any(|kind| {
+                matches!(
+                    kind,
+                    cardpeek_app::OperationKind::Connect | cardpeek_app::OperationKind::Disconnect
+                )
+            })
+        {
+            state.pending_connection = Some(reader.clone());
+            let different_session = state
+                .session
+                .as_ref()
+                .is_some_and(|session| session.reader.name != reader);
+            let disconnecting = state
+                .pending
+                .values()
+                .any(|kind| matches!(kind, cardpeek_app::OperationKind::Disconnect));
+            if state.session_connected() && different_session && !disconnecting {
+                self.disconnect(state);
+            }
+            return;
+        }
+        state.session = None;
+        state.capture_trace = None;
+        state.session_exchanges.clear();
         let request = ConnectRequest::new(reader, transport);
         if let Some(operation) = self.submit(CommandKind::Connect(request)) {
             state
@@ -167,6 +266,10 @@ impl<B: SessionBackend> Controller<B> {
     }
 
     pub fn reset(&self, state: &mut DesktopState) {
+        if !state.card_present() {
+            state.notify_error("A connected physical card is required.");
+            return;
+        }
         if let Some(operation) = self.submit(CommandKind::Reset(ResetMode::Warm)) {
             state
                 .pending
@@ -175,6 +278,10 @@ impl<B: SessionBackend> Controller<B> {
     }
 
     pub fn transmit(&self, command: &str, state: &mut DesktopState) {
+        if !state.card_present() {
+            state.notify_error("Manual transmission requires a connected physical card.");
+            return;
+        }
         let parsed = cardpeek_core::ByteString::from_hex(8, command)
             .map_err(|error| error.to_string())
             .and_then(|bytes| {
@@ -191,26 +298,95 @@ impl<B: SessionBackend> Controller<B> {
                         .insert(operation, cardpeek_app::OperationKind::Transmit);
                 }
             }
-            Err(error) => state.notice = Some(format!("Invalid APDU: {error}")),
+            Err(error) => state.notify_error(format!("Invalid APDU: {error}")),
+        }
+    }
+
+    pub fn select_trace_file(&self) {
+        let sender = self.sender.clone();
+        spawn_task("cardpeek-desktop-trace-picker", move || {
+            let path = rfd::FileDialog::new()
+                .add_filter("Cardpeek traces", &["json"])
+                .pick_file();
+            if let Some(path) = path {
+                let result = TraceDocument::load(&path)
+                    .map(|trace| (path, trace))
+                    .map_err(|error| error.to_string());
+                let _ = sender.send(UiMessage::TraceSelected(result));
+            }
+        });
+    }
+
+    pub fn select_segment(&self, segment: usize, state: &mut DesktopState) {
+        if state
+            .trace
+            .as_ref()
+            .is_some_and(|trace| trace.segment(segment).is_some())
+        {
+            state.selected_trace_segment = segment;
+            state.select_analysis_input(crate::state::AnalysisInput::TraceSegment { segment });
         }
     }
 
     pub fn run(&self, analyser: String, state: &mut DesktopState) {
+        let Some(operation_kind) = state.analysis_operation() else {
+            if let Some(requirement) = state.analysis_requirement() {
+                state.notify_error(requirement);
+            }
+            return;
+        };
+        if !state.can_run() {
+            state.notify_error(
+                state
+                    .analysis_requirement()
+                    .unwrap_or_else(|| "The current operation cannot start yet.".into()),
+            );
+            return;
+        }
         let Some((run_id, document_id)) = state.next_run() else {
             return;
         };
-        let operation = self
-            .application
-            .submit(CommandKind::RunAnalyser(RunAnalyserRequest {
-                analyser,
-                run_id,
-                document_id,
-            }));
+        let common = RunAnalyserRequest {
+            analyser,
+            run_id,
+            document_id,
+        };
+        let kind = match operation_kind {
+            AnalysisOperation::Collect => CommandKind::CollectAnalyser(common),
+            AnalysisOperation::Decode { segment } => {
+                let Some(trace) = state.trace.clone() else {
+                    return;
+                };
+                CommandKind::DecodeAnalyser(DecodeAnalyserRequest {
+                    analyser: common.analyser,
+                    run_id: common.run_id,
+                    document_id: common.document_id,
+                    trace,
+                    segment,
+                })
+            }
+            AnalysisOperation::Replay { segment } => {
+                let Some(trace) = state.trace.clone() else {
+                    return;
+                };
+                CommandKind::ReplayAnalyser(ReplayAnalyserRequest {
+                    analyser: common.analyser,
+                    run_id: common.run_id,
+                    document_id: common.document_id,
+                    trace,
+                    segment,
+                })
+            }
+        };
+        let operation = self.application.submit(kind);
         match operation {
             Ok(operation) => {
-                state
-                    .pending
-                    .insert(operation.clone(), cardpeek_app::OperationKind::RunAnalyser);
+                let pending_kind = match operation_kind {
+                    AnalysisOperation::Collect => cardpeek_app::OperationKind::CollectAnalyser,
+                    AnalysisOperation::Decode { .. } => cardpeek_app::OperationKind::DecodeAnalyser,
+                    AnalysisOperation::Replay { .. } => cardpeek_app::OperationKind::ReplayAnalyser,
+                };
+                state.pending.insert(operation.clone(), pending_kind);
                 state.run_operation = Some(operation);
             }
             Err(error) => {
@@ -259,7 +435,7 @@ impl<B: SessionBackend> Controller<B> {
 
     pub fn remove_analyser(&self, state: &mut DesktopState) {
         let Some(analyser) = state.selected_analyser.clone() else {
-            state.notice = Some("Select an analyser to remove.".into());
+            state.notify_error("Select an analyser to remove.");
             return;
         };
         let sender = self.sender.clone();
@@ -302,7 +478,7 @@ impl<B: SessionBackend> Controller<B> {
     pub fn export(&self, state: &mut DesktopState) {
         let destination = PathBuf::from(state.export_destination.trim());
         if destination.as_os_str().is_empty() {
-            state.notice = Some("Choose an export destination.".into());
+            state.notify_error("Choose an export destination.");
             return;
         }
         let request = match state.export_kind {
@@ -312,20 +488,15 @@ impl<B: SessionBackend> Controller<B> {
                     destination: destination.clone(),
                 })
             }),
-            ExportKind::Trace => state.last_session.clone().map(|session| {
-                ExportRequest::Trace(ExportTrace {
-                    session,
-                    mode: state.trace_export_mode,
-                    destination: destination.clone(),
-                })
-            }),
+            ExportKind::Trace => state.export_trace().map(ExportRequest::Trace),
         };
         let Some(request) = request else {
-            state.notice = Some("The selected export is not available.".into());
+            state.notify_error("The selected export is not available.");
             return;
         };
         let application = self.application.clone();
         let sender = self.sender();
+        let mode = state.trace_export_mode;
         state.show_export = false;
         spawn_task("cardpeek-desktop-export", move || {
             let path = destination.display().to_string();
@@ -337,13 +508,15 @@ impl<B: SessionBackend> Controller<B> {
                             run_id: export.run_id,
                             path,
                         }),
-                    ExportRequest::Trace(export) => {
-                        application
-                            .export_trace_now(&export)
-                            .map(|()| ExportNotice::Trace {
-                                session: export.session,
-                                path,
-                            })
+                    ExportRequest::Trace(trace) => {
+                        let trace = match mode {
+                            cardpeek_app::TraceExportMode::Raw => trace,
+                            cardpeek_app::TraceExportMode::Sanitised => trace.sanitised(),
+                        };
+                        trace
+                            .save(&destination)
+                            .map_err(cardpeek_app::AppError::from)
+                            .map(|()| ExportNotice::Trace { path })
                     }
                 }
                 .map_err(|error| error.to_string());
@@ -362,7 +535,7 @@ impl<B: SessionBackend> Controller<B> {
 
 enum ExportRequest {
     Document(ExportDocument),
-    Trace(ExportTrace),
+    Trace(TraceDocument),
 }
 
 enum FileRequest {

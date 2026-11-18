@@ -2,14 +2,14 @@
 
 ## Product scope
 
-CardPeek-ng will provide:
+Cardpeek-ng will provide:
 
 - A reusable Rust engine.
 - A command-line application.
-- A Dioxus desktop application.
+- A GPUI desktop application.
 - PC/SC reader access.
 - APDU transmission and inspection.
-- A Lua API for CardPeek-ng analysers.
+- A Lua API for Cardpeek-ng analysers.
 - A UI-independent result document with versioned JSON serialisation.
 - Native JSON trace recording and replay.
 
@@ -20,19 +20,19 @@ The first release will not provide:
 - Telemetry.
 - An interactive Lua REPL.
 - A security sandbox for Lua scripts.
-- Compatibility with CardPeek Lua analysers.
-- Compatibility with legacy CardPeek XML documents and trace captures.
+- Compatibility with Cardpeek Lua analysers.
+- Compatibility with legacy Cardpeek XML documents and trace captures.
 
 ## Approved decisions
 
 - Use a Rust workspace with separate core, transport, runtime, application, and frontend crates.
 - Use the pcsc crate for native PC/SC integration.
 - Use mlua with vendored Lua 5.4.
-- Define a Lua API without CardPeek compatibility shims.
+- Define a Lua API without Cardpeek compatibility shims.
 - Give every analyser run a fresh Lua state and result document.
 - Treat Lua scripts as trusted code.
 - Use versioned native JSON schemas for documents and traces.
-- Use GPL-3.0-or-later for CardPeek-ng and its bundled analysers.
+- Use GPL-3.0-or-later for Cardpeek-ng and its bundled analysers.
 - Preserve all required third-party notices and attribution.
 - Exclude automatic updates and telemetry from the first release.
 
@@ -59,7 +59,7 @@ Do not treat research versions as permanent dependency pins.
 ```mermaid
 flowchart LR
     CLI --> App[Application engine]
-    Desktop[Dioxus desktop] --> App
+    Desktop[GPUI desktop] --> App
     App --> Analyser[Analyser contract]
     App --> Transport[Transport contract]
     App --> Worker[Dedicated session worker]

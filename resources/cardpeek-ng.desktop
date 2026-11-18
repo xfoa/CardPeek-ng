@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cardpeek-ng
+Comment=Inspect and analyse smart card communication
+Exec=cardpeek-desktop %f
+Icon=cardpeek-ng
+Terminal=false
+Categories=Utility;
+MimeType=application/json;

@@ -1,584 +1,3150 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unreadable_literal)]
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use cardpeek_app::{
     AnswerInteraction, InteractionKind, InteractionResponse, Progress, TraceExportMode,
 };
-use cardpeek_core::ResultNode;
-use dioxus::prelude::*;
+use cardpeek_core::{Protocol, ResultNode, RunId, TraceRecord, TransportKind};
+use gpui::{
+    AnyElement, AppContext, Application, Bounds, ClipboardItem, Context, Div, Entity, FontWeight,
+    MouseButton, MouseDownEvent, Pixels, Point, Render, Rgba, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    deferred, div, prelude::*, px, rgb, size, uniform_list,
+};
 
 use crate::DesktopBackend;
 use crate::controller::Controller;
-use crate::state::{DesktopState, ExportKind, node_value};
-
-const CSS: &str = include_str!("../assets/desktop.css");
+use crate::input::{TextField, TextFieldEvent, bind_keys};
+use crate::preferences::Preferences;
+use crate::state::{
+    AnalysisInput, DesktopState, ExportKind, ExportTraceSource, NotificationLevel, Screen,
+    node_value, spaced_hex, trace_record_matches,
+};
 
 pub type DesktopController = Rc<Controller<DesktopBackend>>;
 
-#[component]
-pub fn App(controller: DesktopController) -> Element {
-    let mut state = use_signal(DesktopState::default);
-    let interaction_text = use_signal(String::new);
-    let controller_for_poll = controller.clone();
-    use_future(move || {
-        let controller = controller_for_poll.clone();
-        async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                if controller.poll_pending() {
-                    controller.poll(&mut state.write());
-                }
-            }
-        }
+const INK: Rgba = Rgba {
+    r: 24.0 / 255.0,
+    g: 38.0 / 255.0,
+    b: 42.0 / 255.0,
+    a: 1.0,
+};
+const MUTED: Rgba = Rgba {
+    r: 101.0 / 255.0,
+    g: 115.0 / 255.0,
+    b: 119.0 / 255.0,
+    a: 1.0,
+};
+const CANVAS: Rgba = Rgba {
+    r: 244.0 / 255.0,
+    g: 246.0 / 255.0,
+    b: 245.0 / 255.0,
+    a: 1.0,
+};
+const NAV: Rgba = Rgba {
+    r: 23.0 / 255.0,
+    g: 45.0 / 255.0,
+    b: 49.0 / 255.0,
+    a: 1.0,
+};
+const GREEN: Rgba = Rgba {
+    r: 8.0 / 255.0,
+    g: 124.0 / 255.0,
+    b: 112.0 / 255.0,
+    a: 1.0,
+};
+const GREEN_DARK: Rgba = Rgba {
+    r: 5.0 / 255.0,
+    g: 102.0 / 255.0,
+    b: 92.0 / 255.0,
+    a: 1.0,
+};
+const GREEN_SOFT: Rgba = Rgba {
+    r: 228.0 / 255.0,
+    g: 243.0 / 255.0,
+    b: 239.0 / 255.0,
+    a: 1.0,
+};
+const BORDER: Rgba = Rgba {
+    r: 223.0 / 255.0,
+    g: 229.0 / 255.0,
+    b: 228.0 / 255.0,
+    a: 1.0,
+};
+const WHITE: Rgba = Rgba {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+};
+const AMBER_SOFT: Rgba = Rgba {
+    r: 248.0 / 255.0,
+    g: 237.0 / 255.0,
+    b: 207.0 / 255.0,
+    a: 1.0,
+};
+const AMBER: Rgba = Rgba {
+    r: 135.0 / 255.0,
+    g: 99.0 / 255.0,
+    b: 19.0 / 255.0,
+    a: 1.0,
+};
+const RED: Rgba = Rgba {
+    r: 161.0 / 255.0,
+    g: 60.0 / 255.0,
+    b: 60.0 / 255.0,
+    a: 1.0,
+};
+const RED_SOFT: Rgba = Rgba {
+    r: 251.0 / 255.0,
+    g: 234.0 / 255.0,
+    b: 234.0 / 255.0,
+    a: 1.0,
+};
+
+/// # Panics
+///
+/// Panics if the desktop window cannot be created.
+pub fn run(
+    controller: DesktopController,
+    preferences: Preferences,
+    trace_path: Option<std::path::PathBuf>,
+) {
+    Application::new().run(move |cx| {
+        cx.text_system()
+            .add_fonts(vec![
+                std::borrow::Cow::Borrowed(include_bytes!("../assets/fa-solid-900.otf")),
+                std::borrow::Cow::Borrowed(include_bytes!("../assets/fa-regular-400.otf")),
+                std::borrow::Cow::Borrowed(include_bytes!("../assets/fa-brands-400.otf")),
+            ])
+            .expect("Font Awesome loads");
+        bind_keys(cx);
+        let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
+        cx.open_window(
+            WindowOptions {
+                app_id: Some("cardpeek-ng".into()),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Cardpeek-ng".into()),
+                    ..Default::default()
+                }),
+                window_min_size: Some(size(px(900.), px(650.))),
+                ..Default::default()
+            },
+            |_, cx| {
+                #[cfg(target_os = "linux")]
+                crate::x11::set_window_icon();
+                cx.new(|cx| App::new(controller.clone(), preferences, trace_path, cx))
+            },
+        )
+        .expect("desktop window opens");
+        cx.activate(true);
     });
+}
 
-    let snapshot = state.read();
-    let connected = snapshot.connected();
-    let can_run = snapshot.can_run();
-    let running = snapshot.run_running();
-    let progress = progress_percent(snapshot.progress.as_ref());
-    let reader_name = snapshot
-        .selected_reader
-        .clone()
-        .unwrap_or_else(|| "No reader".into());
-    let replay = snapshot
-        .readers
-        .iter()
-        .find(|reader| Some(&reader.name) == snapshot.selected_reader.as_ref())
-        .is_none_or(|reader| reader.transport == cardpeek_core::TransportKind::Replay);
-    let protocol = snapshot
-        .session
-        .as_ref()
-        .map_or("-", |session| match session.protocol {
-            cardpeek_core::Protocol::T0 => "T=0",
-            cardpeek_core::Protocol::T1 => "T=1",
-            cardpeek_core::Protocol::Other => "Other",
+#[derive(Clone, PartialEq)]
+struct TreeCacheKey {
+    run_id: RunId,
+    revision: u64,
+    search: String,
+    expanded: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+struct PanelResize {
+    mouse_y: gpui::Pixels,
+    mouse_x: gpui::Pixels,
+    tools_height: f32,
+    details_width: f32,
+}
+
+struct PanelResizeDrag;
+
+struct ContextMenu {
+    position: Point<Pixels>,
+    text: String,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum NotificationHistory {
+    #[default]
+    Collapsed,
+    Expanded,
+}
+
+pub struct App {
+    controller: DesktopController,
+    state: DesktopState,
+    _preferences: Preferences,
+    search: Entity<TextField>,
+    trace_search: Entity<TextField>,
+    apdu: Entity<TextField>,
+    export: Option<Entity<TextField>>,
+    interaction: Option<Entity<TextField>>,
+    interaction_id: Option<String>,
+    analyser_menu_open: bool,
+    input_menu_open: bool,
+    trace_segment_menu_open: bool,
+    notification_history: NotificationHistory,
+    context_menu: Option<ContextMenu>,
+    tree_key: Option<TreeCacheKey>,
+    tree_rows: Rc<Vec<(ResultNode, usize, bool)>>,
+    tools_height: f32,
+    details_width: f32,
+    tools_resize: Option<PanelResize>,
+    details_resize: Option<PanelResize>,
+    _poll: Task<()>,
+}
+
+impl App {
+    fn new(
+        controller: DesktopController,
+        preferences: Preferences,
+        trace_path: Option<std::path::PathBuf>,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
+        let search = cx.new(|cx| TextField::new(cx, "", "Find labels or values", false));
+        let trace_search =
+            cx.new(|cx| TextField::new(cx, "", "Find exact bytes, status, or record ID", false));
+        let apdu = cx.new(|cx| TextField::new(cx, "", "00 A4 04 00 02 3F 00 00", false));
+        cx.subscribe(&search, |app, _, event, cx| {
+            let TextFieldEvent::Changed(value) = event;
+            app.state.set_search(value.clone());
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&trace_search, |app, _, event, cx| {
+            let TextFieldEvent::Changed(value) = event;
+            app.state.trace_search.clone_from(value);
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&apdu, |app, _, event, cx| {
+            let TextFieldEvent::Changed(value) = event;
+            app.state.apdu_command.clone_from(value);
+            cx.notify();
+        })
+        .detach();
+        let poll = cx.spawn(|app: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+            let mut cx = cx.clone();
+            async move {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                    if app
+                        .update(&mut cx, |app, cx| {
+                            app.controller.refresh_readers(&mut app.state);
+                            if app.controller.poll_pending() {
+                                app.controller.poll(&mut app.state);
+                                app.sync_external_inputs(cx);
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
         });
-    let transport_badge = if replay {
-        "badge badge-replay"
-    } else {
-        "badge badge-local"
-    };
-    let transport_label = if replay {
-        "Replay session"
-    } else {
-        "PC/SC session"
-    };
-    let setup_label = if replay { "Replay" } else { "PC/SC" };
-    let document_meta = snapshot.document.as_ref().map_or_else(
-        || "No result document".into(),
-        |document| {
-            format!(
-                "Document {} / rev. {}",
-                document.document.id, document.revision
-            )
-        },
-    );
-    let node_count = snapshot
-        .document
-        .as_ref()
-        .map_or(0, |document| document.document.node_count());
-    drop(snapshot);
-
-    rsx! {
-        style { {CSS} }
-        header { class: "app-header",
-            div { class: "brand",
-                div { class: "brand-mark", aria_hidden: "true" }
-                div {
-                    div { class: "brand-name", "CardPeek " span { "NG" } }
-                    span { class: "prototype-tag", "Smart-card inspector" }
-                }
-            }
-            div { class: "header-session",
-                span { class: "{transport_badge}", "{transport_label}" }
-                span { "{reader_name}" }
-                span { class: "badge badge-local", "Local only" }
-            }
-            div { class: "header-actions",
-                button { class: "button button-dark-ghost", onclick: move |_| state.write().show_apdus = true, "Inspect APDUs" }
-                button { class: "button button-dark-ghost", onclick: move |_| state.write().show_transmit = true, "Send APDU" }
-                button {
-                    class: "button button-dark-ghost",
-                    onclick: move |_| open_export(&mut state.write(), ExportKind::Document),
-                    "Export"
-                }
-            }
+        let mut state = DesktopState {
+            trace_path,
+            ..DesktopState::default()
+        };
+        if let Some(path) = &state.trace_path
+            && let Ok(trace) = cardpeek_core::TraceDocument::load(path)
+        {
+            state.set_trace(trace);
+            state.screen = Screen::Trace;
         }
-        main { class: "inspector",
-            aside { class: "pane setup-pane",
-                div { class: "pane-header", h2 { class: "pane-title", "Session setup" } span { class: "{transport_badge}", "{setup_label}" } }
-                div { class: "setup-body",
-                    section { class: "setup-section",
-                        label { class: "section-label", r#for: "reader", "Card reader" }
-                        select {
-                            class: "select", id: "reader", disabled: connected,
-                            onchange: move |event| state.write().selected_reader = Some(event.value()),
-                            for reader in state.read().readers.clone() {
-                                option { value: "{reader.name}", selected: state.read().selected_reader.as_ref() == Some(&reader.name), "{reader.name}" }
-                            }
-                        }
-                        p { class: "field-note", "Choose a native PC/SC reader or the recorded replay source." }
-                        div { class: "status-line small", margin_top: "12px",
-                            span { class: if connected { "status-dot" } else { "status-dot offline" } }
-                            strong { if connected { "Connected" } else { "Disconnected" } }
-                            span { class: "muted", "{protocol}" }
-                        }
-                        div { class: "setup-actions",
-                            if connected {
-                                button { class: "button", onclick: { let controller = controller.clone(); move |_| controller.disconnect(&mut state.write()) }, "Disconnect" }
-                            } else {
-                                button { class: "button", onclick: {
-                                    let controller = controller.clone();
-                                    move |_| {
-                                        let reader = state.read().selected_reader.clone();
-                                        if let Some(reader) = reader { controller.connect(reader, &mut state.write()); }
-                                    }
-                                }, "Connect" }
-                            }
-                            button { class: "button", disabled: !connected || running, onclick: { let controller = controller.clone(); move |_| controller.reset(&mut state.write()) }, "Reset" }
-                        }
-                    }
-                    section { class: "setup-section",
-                        label { class: "section-label", r#for: "analyser-directory", "Analyser library" }
-                        input {
-                            class: "text-input", id: "analyser-directory",
-                            value: "{state.read().analyser_directory}",
-                            readonly: true,
-                        }
-                        div { class: "setup-actions", margin_top: "8px",
-                            button {
-                                class: "button", disabled: running,
-                                onclick: {
-                                    let controller = controller.clone();
-                                    move |_| controller.select_analyser_files()
-                                },
-                                "Import Lua files"
-                            }
-                            button {
-                                class: "button", disabled: running || state.read().selected_analyser.is_none(),
-                                onclick: {
-                                    let controller = controller.clone();
-                                    move |_| controller.remove_analyser(&mut state.write())
-                                },
-                                "Remove selected"
-                            }
-                        }
-                        p { class: "field-note", "Import one or more Lua analysers into this user library. Import only trusted scripts." }
-                        label { class: "section-label", r#for: "analyser", margin_top: "14px", "Analyser" }
-                        select {
-                            class: "select", id: "analyser", disabled: running || state.read().analysers.is_empty(),
-                            onchange: move |event| state.write().selected_analyser = Some(event.value()),
-                            if state.read().analysers.is_empty() {
-                                option { value: "", "No analysers found" }
-                            }
-                            for analyser in state.read().analysers.clone() {
-                                option { value: "{analyser.id}", selected: state.read().selected_analyser.as_ref() == Some(&analyser.id), "{analyser.title}" }
-                            }
-                        }
-                        if state.read().analysers.is_empty() {
-                            p { class: "field-note", "Import Lua analysers to make them available here and in the CLI." }
-                        }
-                        if let Some(analyser) = state.read().analysers.iter().find(|analyser| Some(&analyser.id) == state.read().selected_analyser.as_ref()).cloned() {
-                            p { class: "field-note", "{analyser.title} {analyser.version}" br {} "{analyser.description}" }
-                        }
-                        button {
-                            class: "button button-primary button-wide", disabled: !can_run,
-                            onclick: {
-                                let controller = controller.clone();
-                                move |_| {
-                                    let analyser = { state.read().selected_analyser.clone() };
-                                    if let Some(analyser) = analyser {
-                                        controller.run(analyser, &mut state.write());
-                                    }
-                                }
-                            },
-                            if running { "Running analyser" } else { "Run analyser" }
-                        }
-                        div { margin_top: "14px",
-                            div { class: "progress-track", div { class: "progress-bar", width: "{progress}%" } }
-                            div { class: "progress-meta", span { "{state.read().run_status.label()}" } span { "{progress}%" } }
-                        }
-                        if running {
-                            button { class: "button button-wide", margin_top: "8px", onclick: { let controller = controller.clone(); move |_| controller.cancel(&state.read()) }, "Cancel run" }
-                        }
-                    }
-                    section { class: "setup-section",
-                        div { class: "notice", strong { "Trusted scripts only" } "Analysers can access local files and system facilities. They are not sandboxed." }
-                        div { class: "notice notice-safe", margin_top: "12px", strong { "No telemetry" } "Card data and traces stay on this device unless you export them." }
-                    }
-                }
-            }
-            div { class: "inspector-workspace",
-                div { class: "workspace-heading",
-                    div { h1 { "Analysis result" } p { "{document_meta}" } }
-                    div { class: "search-wrap",
-                        input {
-                            class: "text-input", r#type: "search", placeholder: "Search labels and values",
-                            aria_label: "Search result tree", value: "{state.read().search}",
-                            oninput: move |event| state.write().set_search(event.value()),
-                        }
-                    }
-                }
-                div { class: "inspector-results",
-                    section { class: "pane results-tree-pane", aria_label: "Result tree",
-                        div { class: "pane-header", h2 { class: "pane-title", "Result tree" } span { class: "muted small", "{node_count} nodes" } }
-                        ResultTree { state }
-                    }
-                    section { class: "pane details-pane", aria_label: "Selected node details",
-                        NodeDetails { state }
-                    }
-                }
-                section { class: "pane activity-pane", aria_label: "Analyser activity",
-                    div { class: "pane-header", h2 { class: "pane-title", "Analyser activity" }
-                        button { class: "button button-quiet", onclick: move |_| state.write().logs.clear(), "Clear log" }
-                    }
-                    div { class: "activity-body",
-                        ul { class: "log-list",
-                            for log in state.read().logs.iter().rev().take(12).cloned().collect::<Vec<_>>() {
-                                li { key: "{log.sequence}",
-                                    span { class: "log-time", "#{log.sequence}" }
-                                    span { class: "log-level", "{log.level:?}" }
-                                    span { "{log.message}" }
-                                }
-                            }
-                        }
-                        div { class: "activity-summary",
-                            div { class: "metric-line", strong { "{state.read().exchanges.len()}" } span { "APDU exchanges" } }
-                            div { class: "progress-meta", span { "{node_count} result nodes" } }
-                            button { class: "button", onclick: move |_| state.write().show_apdus = true, "View exchanges" }
-                        }
-                    }
-                }
-            }
-        }
-        if state.read().interaction.is_some() {
-            InteractionDialog { state, interaction_text, controller: controller.clone() }
-        }
-        if state.read().show_apdus {
-            ApduDialog { state }
-        }
-        if state.read().show_transmit {
-            TransmitDialog { state, controller: controller.clone() }
-        }
-        if state.read().show_export {
-            ExportDialog { state, controller: controller.clone() }
-        }
-        if let Some(notice) = state.read().notice.clone() {
-            div { class: "toast", role: "status", "{notice}" }
+        Self {
+            controller,
+            state,
+            _preferences: preferences,
+            search,
+            trace_search,
+            apdu,
+            export: None,
+            interaction: None,
+            interaction_id: None,
+            analyser_menu_open: false,
+            input_menu_open: false,
+            trace_segment_menu_open: false,
+            notification_history: NotificationHistory::Collapsed,
+            context_menu: None,
+            tree_key: None,
+            tree_rows: Rc::new(Vec::new()),
+            tools_height: 180.,
+            details_width: 360.,
+            tools_resize: None,
+            details_resize: None,
+            _poll: poll,
         }
     }
-}
 
-#[component]
-fn ResultTree(state: Signal<DesktopState>) -> Element {
-    let snapshot = state.read();
-    let Some(document) = &snapshot.document else {
-        return rsx! { div { class: "empty-state", "Connect and run an analyser to publish a result document." } };
-    };
-    let roots = document.document.roots.clone();
-    let searching = !snapshot.search.trim().is_empty();
-    let visible = snapshot.visible_nodes().len();
-    drop(snapshot);
-    rsx! {
-        div { class: "result-tree",
-            if searching && visible == 0 {
-                div { class: "empty-state", "No matching result nodes." }
+    fn sync_external_inputs(&mut self, cx: &mut Context<'_, Self>) {
+        let current_id = self
+            .state
+            .interaction
+            .as_ref()
+            .map(|request| request.id.to_string());
+        if current_id != self.interaction_id {
+            self.interaction_id = current_id;
+            self.interaction = None;
+            if let Some(request) = self.state.interaction.as_ref()
+                && matches!(
+                    request.kind,
+                    InteractionKind::TextInput { .. } | InteractionKind::SecretInput { .. }
+                )
+            {
+                let default = match &request.kind {
+                    InteractionKind::TextInput { default, .. } => {
+                        default.clone().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+                let masked = matches!(request.kind, InteractionKind::SecretInput { .. });
+                let field = cx.new(|cx| TextField::new(cx, default, "Enter response", masked));
+                self.interaction = Some(field);
+            }
+        }
+        if self.state.show_export {
+            if let Some(field) = &self.export {
+                let destination = self.state.export_destination.clone();
+                field.update(cx, |field, cx| {
+                    if field.text() != destination {
+                        field.set_text(destination, cx);
+                    }
+                });
             } else {
-                ul { class: "tree-group",
-                    for node in roots {
-                        TreeNode { key: "{node.id}", node, state, depth: 0, searching }
-                    }
-                }
+                let field = cx.new(|cx| {
+                    TextField::new(
+                        cx,
+                        self.state.export_destination.clone(),
+                        "Destination",
+                        false,
+                    )
+                });
+                cx.subscribe(&field, |app, _, event, cx| {
+                    let TextFieldEvent::Changed(value) = event;
+                    app.state.export_destination.clone_from(value);
+                    cx.notify();
+                })
+                .detach();
+                self.export = Some(field);
             }
+        } else {
+            self.export = None;
         }
     }
-}
 
-#[component]
-fn TreeNode(
-    node: ResultNode,
-    state: Signal<DesktopState>,
-    depth: usize,
-    searching: bool,
-) -> Element {
-    if !state.read().node_visible(&node) {
-        return rsx! {};
+    fn connect(&mut self, _: &MouseDownEvent, _: &mut Window, cx: &mut Context<'_, Self>) {
+        if let Some(reader) = self.state.selected_reader.clone() {
+            self.controller.connect(reader, &mut self.state);
+            cx.notify();
+        }
     }
-    let id = node.id.to_string();
-    let expanded = state.read().expanded.contains(&id);
-    let selected = state.read().selected_node.as_ref() == Some(&id);
-    let value = node_value(&node);
-    let has_children = !node.children.is_empty();
-    let children = node.children.clone();
-    rsx! {
-        li {
-            button {
-                class: if selected { "tree-node selected" } else { "tree-node" },
-                onclick: move |_| {
-                    let mut state = state.write();
-                    state.selected_node = Some(id.clone());
-                    if has_children && !searching && !state.expanded.remove(&id) {
-                        state.expanded.insert(id.clone());
+
+    fn disconnect(&mut self, _: &MouseDownEvent, _: &mut Window, cx: &mut Context<'_, Self>) {
+        self.controller.disconnect(&mut self.state);
+        cx.notify();
+    }
+
+    fn reset(&mut self, _: &MouseDownEvent, _: &mut Window, cx: &mut Context<'_, Self>) {
+        self.controller.reset(&mut self.state);
+        cx.notify();
+    }
+
+    fn run_analysis(&mut self, _: &MouseDownEvent, _: &mut Window, cx: &mut Context<'_, Self>) {
+        if let Some(analyser) = self.state.selected_analyser.clone() {
+            self.controller.run(analyser, &mut self.state);
+            cx.notify();
+        }
+    }
+
+    fn transmit(&mut self, _: &MouseDownEvent, _: &mut Window, cx: &mut Context<'_, Self>) {
+        self.controller
+            .transmit(&self.state.apdu_command.clone(), &mut self.state);
+        cx.notify();
+    }
+
+    fn open_export(
+        &mut self,
+        kind: ExportKind,
+        source: ExportTraceSource,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.state.export_kind = kind;
+        self.state.export_trace_source = source;
+        self.state.export_destination = match kind {
+            ExportKind::Document => "cardpeek-result.json",
+            ExportKind::Trace => "cardpeek-trace.json",
+        }
+        .into();
+        self.state.show_export = true;
+        self.export = None;
+        self.sync_external_inputs(cx);
+        cx.notify();
+    }
+
+    fn header(&self) -> Div {
+        let connected = self.state.connected();
+        let context = self
+            .state
+            .session
+            .as_ref()
+            .filter(|_| connected)
+            .map_or_else(
+                || {
+                    self.state
+                        .selected_reader
+                        .clone()
+                        .unwrap_or_else(|| "No input selected".into())
+                },
+                |session| session.reader.name.clone(),
+            );
+        let status = if connected {
+            if self.state.card_present() {
+                "Card present"
+            } else {
+                "No card"
+            }
+        } else {
+            "Disconnected"
+        };
+        div()
+            .h(px(76.))
+            .w_full()
+            .flex_shrink_0()
+            .bg(NAV)
+            .text_color(WHITE)
+            .flex()
+            .items_center()
+            .justify_between()
+            .px_6()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(brand_mark())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(18.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Cardpeek-ng"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .text_color(rgb(0xa8bcba))
+                                    .child("Smart-card workspace"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(badge("PHYSICAL READER", rgb(0xc0d5d2), rgb(0x294347)))
+                    .child(div().text_size(px(13.)).child(context))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().size(px(7.)).rounded_full().bg(if connected {
+                                if self.state.card_present() {
+                                    rgb(0x60c8a9)
+                                } else {
+                                    AMBER
+                                }
+                            } else {
+                                MUTED
+                            }))
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .text_color(rgb(0xc0d5d2))
+                                    .child(status),
+                            ),
+                    ),
+            )
+    }
+
+    fn rail(&self, cx: &mut Context<'_, Self>) -> Div {
+        div()
+            .w(px(72.))
+            .h_full()
+            .flex_shrink_0()
+            .bg(NAV)
+            .border_t_1()
+            .border_color(rgb(0x294347))
+            .pt_4()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .child(self.nav_button(
+                Screen::Reader,
+                "Font Awesome 7 Brands",
+                "\u{f287}",
+                "Reader",
+                cx,
+            ))
+            .child(self.nav_button(
+                Screen::Analysis,
+                "Font Awesome 7 Free",
+                "\u{f201}",
+                "Analysis",
+                cx,
+            ))
+            .child(self.nav_button(
+                Screen::Trace,
+                "Font Awesome 7 Free",
+                "\u{f022}",
+                "Trace",
+                cx,
+            ))
+            .child(self.nav_button(
+                Screen::Library,
+                "Font Awesome 7 Free Solid",
+                "\u{f02d}",
+                "Library",
+                cx,
+            ))
+    }
+
+    fn nav_button(
+        &self,
+        screen: Screen,
+        font_family: &'static str,
+        icon: &'static str,
+        tooltip: &'static str,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let active = self.state.screen == screen;
+        div()
+            .id(SharedString::from(format!("nav-{}", screen as u8)))
+            .w(px(58.))
+            .h(px(58.))
+            .rounded_lg()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .bg(if active { GREEN } else { NAV })
+            .text_color(if active { WHITE } else { rgb(0xa8bcba) })
+            .hover(move |style| {
+                if active {
+                    style.bg(GREEN_DARK)
+                } else {
+                    style.bg(rgb(0x294347))
+                }
+            })
+            .tooltip(move |_, cx| cx.new(|_| Tooltip(tooltip)).into())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |app, _, _, cx| {
+                    app.state.screen = screen;
+                    app.analyser_menu_open = false;
+                    app.input_menu_open = false;
+                    app.trace_segment_menu_open = false;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .text_size(px(22.))
+                    .font_family(font_family)
+                    .font_weight(FontWeight::NORMAL)
+                    .child(icon),
+            )
+    }
+
+    fn reader_page(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        div()
+            .id("reader-page")
+            .w_full()
+            .min_h_full()
+            .overflow_y_scroll()
+            .p_6()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(page_head(
+                "Reader",
+                "Connect a physical PC/SC reader and inspect the current card capture.",
+            ))
+            .child(
+                div()
+                    .flex()
+                    .gap_5()
+                    .w_full()
+                    .items_start()
+                    .child(div().flex_1().child(self.reader_connection_panel(cx)))
+                    .child(div().flex_1().child(self.card_panel())),
+            )
+            .child(self.capture_panel(cx))
+            .child(
+                panel()
+                    .child(panel_head("Current session exchanges", "PHYSICAL CARD"))
+                    .child(self.session_exchanges(cx)),
+            )
+            .child(self.transmit_tool(cx))
+    }
+
+    fn reader_connection_panel(&self, cx: &mut Context<'_, Self>) -> Div {
+        let connected = self.state.connected();
+        let selected = self
+            .state
+            .readers
+            .iter()
+            .find(|reader| Some(&reader.name) == self.state.selected_reader.as_ref());
+        let status = if connected {
+            if self.state.card_present() {
+                "Connected to physical card"
+            } else {
+                "Connected to physical reader"
+            }
+        } else if selected.is_some() {
+            "Physical reader selected"
+        } else {
+            "No physical reader detected"
+        };
+        panel()
+            .child(panel_head("Reader connection", "PC/SC"))
+            .child(panel_body()
+                .child(field_label("Physical reader"))
+                .child(self.reader_list(cx))
+                .child(div().mt_4().p_4().rounded_md().bg(CANVAS).flex().items_center().gap_4()
+                    .child(reader_device(false))
+                    .child(div().child(div().font_weight(FontWeight::SEMIBOLD).child(status))
+                        .child(note("The physical session is independent of open traces and analysis."))))
+                .child(div().mt_4().flex().gap_2()
+                    .child(if connected {
+                        button("disconnect", "Disconnect", ButtonKind::Normal, !self.state.run_running(), cx.listener(Self::disconnect)).into_any_element()
+                    } else {
+                        button("connect", "Connect", ButtonKind::Primary, selected.is_some(), cx.listener(Self::connect)).into_any_element()
+                    })
+                    .child(button("reset", "Reset reader", ButtonKind::Normal, self.state.card_present() && !self.state.run_running(), cx.listener(Self::reset))))
+        )
+    }
+
+    fn capture_panel(&self, cx: &mut Context<'_, Self>) -> Div {
+        let resets = self.state.capture_trace.as_ref().map_or(0, |trace| {
+            trace
+                .records
+                .iter()
+                .filter(|record| matches!(record, TraceRecord::Reset { .. }))
+                .count()
+        });
+        let commands = self.state.capture_trace.as_ref().map_or(0, |trace| {
+            trace
+                .records
+                .iter()
+                .filter(|record| matches!(record, TraceRecord::Command { .. }))
+                .count()
+        });
+        let captures = self
+            .state
+            .capture_trace
+            .as_ref()
+            .map_or(0, |trace| trace.captures.len());
+        panel()
+            .child(panel_head("Current capture", "SESSION TRACE"))
+            .child(
+                panel_body()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .child(detail_row("Resets", &resets.to_string()))
+                    .child(detail_row("Exchanges", &commands.to_string()))
+                    .child(detail_row("Capture bundles", &captures.to_string()))
+                    .child(div().flex_1())
+                    .child(button(
+                        "export-capture",
+                        "Export current capture",
+                        ButtonKind::Normal,
+                        self.state.capture_trace.is_some(),
+                        cx.listener(|app, _, _, cx| {
+                            app.open_export(ExportKind::Trace, ExportTraceSource::Capture, cx);
+                        }),
+                    ))
+                    .child(button(
+                        "open-capture-trace",
+                        "Open in Trace",
+                        ButtonKind::Quiet,
+                        self.state.capture_trace.is_some(),
+                        cx.listener(|app, _, _, cx| {
+                            if app.state.open_capture_in_trace() {
+                                app.state.screen = Screen::Trace;
+                            }
+                            cx.notify();
+                        }),
+                    )),
+            )
+    }
+
+    fn reader_list(&self, cx: &mut Context<'_, Self>) -> Div {
+        let connected = self.state.connected();
+        let mut list = div().mt_2().max_h(px(118.)).flex().flex_col().gap_1();
+        let readers: Vec<_> = self
+            .state
+            .readers
+            .iter()
+            .filter(|reader| reader.transport == TransportKind::Pcsc)
+            .collect();
+        if readers.is_empty() {
+            list = list.child(empty_box("No readers found"));
+        }
+        for reader in readers {
+            let name = reader.name.clone();
+            let selected = self.state.selected_reader.as_ref() == Some(&reader.name);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("reader-{name}")))
+                    .w_full()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if selected { GREEN } else { BORDER })
+                    .bg(if selected { GREEN_SOFT } else { WHITE })
+                    .text_size(px(14.))
+                    .when(!connected, |element| {
+                        element
+                            .cursor_pointer()
+                            .hover(|style| style.bg(GREEN_SOFT))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |app, _, _, cx| {
+                                    app.state.selected_reader = Some(name.clone());
+                                    cx.notify();
+                                }),
+                            )
+                    })
+                    .child(reader.name.clone()),
+            );
+        }
+        list
+    }
+
+    fn card_panel(&self) -> Div {
+        let connected = self.state.connected();
+        let Some(session) = self.state.session.as_ref().filter(|_| connected) else {
+            return panel()
+                .child(panel_head("Current physical card", "OFFLINE"))
+                .child(empty_box(
+                    "Connect a physical PC/SC reader to inspect the current card.",
+                ));
+        };
+        if !self.state.card_present() {
+            return panel()
+                .child(panel_head("Current physical card", "NO CARD"))
+                .child(empty_box(
+                    "No card is physically present in the connected reader.",
+                ));
+        }
+        let protocol = protocol_label(session.protocol);
+        panel()
+            .child(panel_head("Current physical card", "CARD PRESENT"))
+            .child(
+                panel_body()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_4()
+                            .pb_4()
+                            .border_b_1()
+                            .border_color(BORDER)
+                            .child(smart_card())
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child("Current card")
+                                    .child(note("Physical session details")),
+                            )
+                            .child(badge(protocol, GREEN_DARK, GREEN_SOFT)),
+                    )
+                    .child(detail_row("Connection", "Shared PC/SC session"))
+                    .child(detail_row("Protocol", protocol))
+                    .child(detail_row("ATR", &spaced_hex(session.atr.as_bytes())))
+                    .child(detail_row("Reader", &session.reader.name))
+                    .child(detail_row("Session", &session.id.to_string())),
+            )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn analysis_page(&mut self, cx: &mut Context<'_, Self>) -> Div {
+        let has_result = self.state.document.is_some();
+        let analyser_name = self.state.selected_analyser_metadata().map_or_else(
+            || "No analyser selected".into(),
+            |analyser| analyser.title.clone(),
+        );
+        let page_description = format!("{analyser_name} / {}", self.state.run_status.label());
+        let mut result = div().flex_1().min_h_0().w_full();
+        if has_result {
+            result = result
+                .flex()
+                .child(self.tree_panel(cx))
+                .child(Self::details_resize_handle(cx))
+                .child(self.node_details());
+        } else {
+            result = result.child(panel().size_full().flex().items_center().justify_center()
+                .child(div().max_w(px(430.)).child(empty_box(if self.state.run_running() {
+                    "Analysis is running. The result will appear when the analyser publishes a revision."
+                } else {
+                    "Select an explicit input and compatible analyser, then start the operation."
+                }))));
+        }
+        let requirement = self.state.analysis_requirement();
+        div()
+            .size_full()
+            .p_5()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .mb_3()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Analysis"),
+                            )
+                            .child(note(&page_description)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div().relative().child(self.input_picker(cx)).when(
+                                    self.input_menu_open,
+                                    |element| {
+                                        element.child(deferred(self.input_menu(cx)).priority(1))
+                                    },
+                                ),
+                            )
+                            .child(div().relative().child(self.analyser_picker(cx)).when(
+                                self.analyser_menu_open,
+                                |element| {
+                                    element.child(deferred(self.analyser_menu(cx)).priority(1))
+                                },
+                            ))
+                            .child(button(
+                                "run",
+                                self.state.operation_label(),
+                                ButtonKind::Primary,
+                                self.state.can_run(),
+                                cx.listener(Self::run_analysis),
+                            ))
+                            .child(button(
+                                "export-document",
+                                "Export result",
+                                ButtonKind::Normal,
+                                has_result,
+                                cx.listener(|app, _, _, cx| {
+                                    app.open_export(
+                                        ExportKind::Document,
+                                        ExportTraceSource::Capture,
+                                        cx,
+                                    );
+                                }),
+                            )),
+                    ),
+            )
+            .when_some(requirement, |element, text| {
+                element.child(div().mb_3().child(note(&text)))
+            })
+            .child(result)
+            .when(self.state.run_details_open, |element| {
+                element
+                    .child(Self::tools_resize_handle(cx))
+                    .child(self.run_details(cx))
+            })
+            .when(!self.state.run_details_open, |element| {
+                element.child(button(
+                    "open-run-details",
+                    "Show run details",
+                    ButtonKind::Quiet,
+                    true,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.run_details_open = true;
+                        cx.notify();
+                    }),
+                ))
+            })
+    }
+
+    fn tools_resize_handle(cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        div()
+            .id("tools-resize")
+            .h(px(7.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_row_resize()
+            .hover(|style| style.bg(GREEN_SOFT))
+            .active(|style| style.bg(BORDER))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|app, event: &MouseDownEvent, _, cx| {
+                    app.tools_resize = Some(PanelResize {
+                        mouse_y: event.position.y,
+                        mouse_x: event.position.x,
+                        tools_height: app.tools_height,
+                        details_width: app.details_width,
+                    });
+                    cx.stop_propagation();
+                }),
+            )
+            .on_drag(PanelResizeDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .on_drag_move::<PanelResizeDrag>(cx.listener(
+                |app, event: &gpui::DragMoveEvent<PanelResizeDrag>, _, cx| {
+                    if let Some(resize) = app.tools_resize {
+                        let delta = f32::from(resize.mouse_y - event.event.position.y);
+                        app.tools_height = (resize.tools_height + delta).clamp(120., 480.);
+                        cx.notify();
                     }
                 },
-                span { class: "tree-chevron", if has_children { if expanded || searching { "v" } else { ">" } } }
-                span { class: "node-icon", "{node.class.chars().next().unwrap_or('#')}" }
-                "{node.label}"
-                span { class: "tree-value", "{value}" }
-            }
-            if has_children && (expanded || searching) {
-                ul { class: "tree-group",
-                    for child in children {
-                        TreeNode { key: "{child.id}", node: child, state, depth: depth + 1, searching }
-                    }
-                }
-            }
-        }
+            ))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|app, _, _, _| app.tools_resize = None),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|app, _, _, _| app.tools_resize = None),
+            )
+            .child(div().w(px(32.)).h(px(3.)).rounded_full().bg(MUTED))
     }
-}
 
-#[component]
-fn NodeDetails(state: Signal<DesktopState>) -> Element {
-    let snapshot = state.read();
-    let Some(node) = snapshot.selected().cloned() else {
-        return rsx! { div { class: "empty-state", "Select a result node." } };
-    };
-    let size = node
-        .size_bits
-        .map_or_else(|| "Not specified".into(), |size| format!("{size} bits"));
-    let mime_type = node.mime_type.as_deref().unwrap_or("Not specified");
-    let source = node.provenance.as_ref().map_or_else(
-        || "Not specified".into(),
-        |source| source.record.to_string(),
-    );
-    rsx! {
-        div { class: "pane-header", h2 { class: "pane-title", "Node details" } span { class: "muted small mono", "{node.id}" } }
-        div { class: "details-body",
-            h2 { "{node.label}" }
-            p { "Selected result node" }
-            dl { class: "detail-grid",
-                dt { "Value" } dd { code { class: "code-value", "{node_value(&node)}" } }
-                dt { "Class" } dd { class: "mono", "{node.class}" }
-                dt { "Size" } dd { "{size}" }
-                dt { "Node ID" } dd { class: "mono", "{node.id}" }
-                dt { "MIME type" } dd { class: "mono", "{mime_type}" }
-                dt { "Source" } dd { "{source}" }
-            }
-        }
+    fn details_resize_handle(cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        div()
+            .id("details-resize")
+            .w(px(9.))
+            .mx(px(-1.))
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_col_resize()
+            .hover(|style| style.bg(GREEN_SOFT))
+            .active(|style| style.bg(BORDER))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|app, event: &MouseDownEvent, _, cx| {
+                    app.details_resize = Some(PanelResize {
+                        mouse_y: event.position.y,
+                        mouse_x: event.position.x,
+                        tools_height: app.tools_height,
+                        details_width: app.details_width,
+                    });
+                    cx.stop_propagation();
+                }),
+            )
+            .on_drag(PanelResizeDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .on_drag_move::<PanelResizeDrag>(cx.listener(
+                |app, event: &gpui::DragMoveEvent<PanelResizeDrag>, _, cx| {
+                    if let Some(resize) = app.details_resize {
+                        let delta = f32::from(resize.mouse_x - event.event.position.x);
+                        app.details_width = (resize.details_width + delta).clamp(240., 600.);
+                        cx.notify();
+                    }
+                },
+            ))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|app, _, _, _| app.details_resize = None),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|app, _, _, _| app.details_resize = None),
+            )
+            .child(div().w(px(3.)).h(px(32.)).rounded_full().bg(MUTED))
     }
-}
 
-#[component]
-fn ApduDialog(state: Signal<DesktopState>) -> Element {
-    rsx! {
-        DialogFrame { title: "APDU exchanges", subtitle: "Exact session command and response records", wide: true, onclose: move |()| state.write().show_apdus = false,
-            div { class: "dialog-body",
-                if state.read().exchanges.is_empty() {
-                    div { class: "empty-state", "No APDU commands were exchanged in this run." }
-                }
-                for exchange in state.read().exchanges.clone() {
-                    div { class: "apdu-row",
-                        span { class: "apdu-direction", "TX" } span { class: "muted small", "{exchange.record}" }
-                        code { "{exchange.command}" }
-                    }
-                    div { class: "apdu-row",
-                        span { class: "apdu-direction", "RX" } span { class: "muted small", "Status {exchange.status}" }
-                        code { "{exchange.data}" }
-                    }
-                }
-                div { class: "notice", margin_top: "16px", strong { "Sensitive card data" } "Raw exchanges remain local unless you export them." }
-            }
-            div { class: "dialog-footer",
-                button { class: "button", onclick: move |_| state.write().show_apdus = false, "Close" }
-                button { class: "button button-primary", onclick: move |_| { state.write().show_apdus = false; open_export(&mut state.write(), ExportKind::Trace); }, "Export trace" }
-            }
-        }
-    }
-}
-
-#[component]
-fn TransmitDialog(state: Signal<DesktopState>, controller: DesktopController) -> Element {
-    rsx! {
-        DialogFrame { title: "Transmit APDU", subtitle: "Send exact command bytes through the active session.", wide: false, onclose: move |()| state.write().show_transmit = false,
-            div { class: "dialog-body",
-                label { class: "section-label", r#for: "apdu-command", "Hexadecimal command" }
-                input { class: "text-input mono", id: "apdu-command", value: "{state.read().apdu_command}", oninput: move |event| state.write().apdu_command = event.value() }
-                p { class: "field-note", "No implicit retries or GET RESPONSE commands are issued." }
-            }
-            div { class: "dialog-footer",
-                button { class: "button", onclick: move |_| state.write().show_transmit = false, "Cancel" }
-                button { class: "button button-primary", disabled: !state.read().connected(), onclick: move |_| {
-                    let command = { state.read().apdu_command.clone() };
-                    controller.transmit(&command, &mut state.write());
-                    state.write().show_transmit = false;
-                    state.write().show_apdus = true;
-                }, "Transmit" }
-            }
-        }
-    }
-}
-
-#[component]
-fn ExportDialog(state: Signal<DesktopState>, controller: DesktopController) -> Element {
-    rsx! {
-        DialogFrame { title: "Export analysis", subtitle: "Choose an explicit local destination.", wide: false, onclose: move |()| state.write().show_export = false,
-            div { class: "dialog-body",
-                span { class: "section-label", "Content and format" }
-                div { class: "option-list",
-                    label { class: "radio-option",
-                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Document, onchange: move |_| open_export(&mut state.write(), ExportKind::Document) }
-                        span { strong { "Result document - JSON" } small { "Versioned native schema with stable node IDs." } }
-                    }
-                    label { class: "radio-option",
-                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Trace, onchange: move |_| { let mut state = state.write(); state.trace_export_mode = TraceExportMode::Raw; open_export(&mut state, ExportKind::Trace); } }
-                        span { strong { "Trace - Raw native JSON" } small { "Faithful replay with sensitive APDU data. Disconnect before export." } }
-                    }
-                    label { class: "radio-option",
-                        input { r#type: "radio", name: "export", checked: state.read().export_kind == ExportKind::Trace && state.read().trace_export_mode == TraceExportMode::Sanitised, onchange: move |_| { let mut state = state.write(); state.trace_export_mode = TraceExportMode::Sanitised; open_export(&mut state, ExportKind::Trace); } }
-                        span { strong { "Trace - Sanitised JSON" } small { "Redacted for sharing. Redaction cannot remove every secret." } }
-                    }
-                }
-                if state.read().export_kind == ExportKind::Trace {
-                    if state.read().trace_export_mode == TraceExportMode::Raw {
-                        div { class: "notice notice-danger", strong { "Sensitive file" } "Store this raw trace securely. Redaction is not applied." }
+    fn analyser_picker(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let label = self
+            .state
+            .analysers
+            .iter()
+            .find(|analyser| Some(&analyser.id) == self.state.selected_analyser.as_ref())
+            .map_or_else(
+                || "No analyser selected".into(),
+                |analyser| {
+                    if analyser.id == "atr" {
+                        format!("Card read {}", analyser.version)
                     } else {
-                        div { class: "notice", strong { "Redaction is limited" } "Review the sanitised file before sharing it." }
+                        format!("{} {}", analyser.title, analyser.version)
                     }
-                }
-                label { class: "section-label", r#for: "destination", "Destination" }
-                div { class: "destination",
-                    input { class: "text-input", id: "destination", value: "{state.read().export_destination}", oninput: move |event| state.write().export_destination = event.value() }
-                    button { class: "button", onclick: { let controller = controller.clone(); move |_| controller.select_export_destination() }, "Browse" }
-                }
-            }
-            div { class: "dialog-footer",
-                button { class: "button", onclick: move |_| state.write().show_export = false, "Cancel" }
-                button { class: "button button-primary", onclick: move |_| controller.export(&mut state.write()), "Export" }
-            }
-        }
+                },
+            );
+        button(
+            "analyser-picker",
+            "",
+            ButtonKind::Normal,
+            !self.state.run_running() && !self.state.analysers.is_empty(),
+            cx.listener(|app, _, window, cx| {
+                app.analyser_menu_open = !app.analyser_menu_open;
+                app.input_menu_open = false;
+                window.prevent_default();
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .w(px(150.))
+        .overflow_hidden()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .pl_2()
+                .font_family("Font Awesome 7 Free Solid")
+                .text_size(px(12.))
+                .child("\u{f078}"),
+        )
     }
-}
 
-#[component]
-fn InteractionDialog(
-    state: Signal<DesktopState>,
-    interaction_text: Signal<String>,
-    controller: DesktopController,
-) -> Element {
-    let Some(request) = state.read().interaction.clone() else {
-        return rsx! {};
-    };
-    let id = request.id.clone();
-    let prompt = match &request.kind {
-        InteractionKind::Question { prompt }
-        | InteractionKind::TextInput { prompt, .. }
-        | InteractionKind::SecretInput { prompt }
-        | InteractionKind::FileSelection { prompt, .. } => prompt.clone(),
-    };
-    if let InteractionKind::TextInput {
-        default: Some(default),
-        ..
-    } = &request.kind
-        && interaction_text.read().is_empty()
-    {
-        interaction_text.set(default.clone());
+    fn input_picker(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let label = match self.state.analysis_input {
+            AnalysisInput::LiveCard => "Live card".into(),
+            AnalysisInput::TraceSegment { segment } => format!("Trace segment {}", segment + 1),
+        };
+        button(
+            "analysis-input",
+            label,
+            ButtonKind::Normal,
+            !self.state.run_running(),
+            cx.listener(|app, _, window, cx| {
+                app.input_menu_open = !app.input_menu_open;
+                app.analyser_menu_open = false;
+                window.prevent_default();
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
     }
-    rsx! {
-        DialogFrame { title: "Analyser request", subtitle: "The worker waits for this correlated response or cancellation.", wide: false, onclose: move |()| {},
-            div { class: "dialog-body",
-                p { "{prompt}" }
-                match request.kind.clone() {
-                    InteractionKind::TextInput { .. } => rsx! {
-                        input { class: "text-input", value: "{interaction_text}", oninput: move |event| interaction_text.set(event.value()) }
-                    },
-                    InteractionKind::SecretInput { .. } => rsx! {
-                        input { class: "text-input", r#type: "password", autocomplete: "off", value: "{interaction_text}", oninput: move |event| interaction_text.set(event.value()) }
-                        p { class: "field-note", "Secret values never enter application logs." }
-                    },
-                    InteractionKind::FileSelection { must_exist, .. } => rsx! {
-                        button { class: "button", onclick: { let controller = controller.clone(); move |_| controller.select_interaction_file(must_exist) }, "Choose file" }
-                        p { class: "field-note", "{state.read().interaction_file.as_ref().map_or_else(|| \"No file selected\".into(), |path| path.display().to_string())}" }
-                    },
-                    InteractionKind::Question { .. } => rsx! {},
-                }
-            }
-            div { class: "dialog-footer",
-                match request.kind {
-                    InteractionKind::Question { .. } => rsx! {
-                        button { class: "button", onclick: answer(controller.clone(), state, id.clone(), InteractionResponse::Bool(false)), "No" }
-                        button { class: "button button-primary", onclick: answer(controller.clone(), state, id, InteractionResponse::Bool(true)), "Yes" }
-                    },
-                    InteractionKind::FileSelection { .. } => rsx! {
-                        button { class: "button button-primary", disabled: state.read().interaction_file.is_none(), onclick: move |_| {
-                            let path = { state.read().interaction_file.clone() };
-                            if let Some(path) = path {
-                                let response = InteractionResponse::File(path);
-                                controller.answer(AnswerInteraction { request: id.clone(), response }, &mut state.write());
-                            }
-                        }, "Use selected file" }
-                    },
-                    kind @ (InteractionKind::TextInput { .. } | InteractionKind::SecretInput { .. }) => rsx! {
-                        button { class: "button button-primary", onclick: move |_| {
-                            let text = interaction_text.read().clone();
-                            let response = if matches!(kind, InteractionKind::SecretInput { .. }) { InteractionResponse::Secret(text) } else { InteractionResponse::Text(text) };
-                            controller.answer(AnswerInteraction { request: id.clone(), response }, &mut state.write());
-                            interaction_text.set(String::new());
-                        }, "Submit" }
-                    },
-                }
-            }
-        }
-    }
-}
 
-#[component]
-fn DialogFrame(
-    title: String,
-    subtitle: String,
-    wide: bool,
-    onclose: EventHandler<()>,
-    children: Element,
-) -> Element {
-    rsx! {
-        div { class: "dialog-backdrop", role: "presentation",
-            section { class: if wide { "dialog dialog-wide" } else { "dialog" }, role: "dialog", aria_modal: "true", aria_label: "{title}",
-                div { class: "dialog-header",
-                    div { h2 { "{title}" } p { "{subtitle}" } }
-                    button { class: "dialog-close", aria_label: "Close", onclick: move |_| onclose.call(()), "x" }
-                }
-                {children}
-            }
+    fn analyser_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let mut menu = div()
+            .id("analyser-menu")
+            .on_mouse_down_out(cx.listener(|app, _, _, cx| {
+                app.analyser_menu_open = false;
+                cx.notify();
+            }))
+            .absolute()
+            .top(px(38.))
+            .left_0()
+            .w(px(310.))
+            .max_h(px(240.))
+            .rounded_md()
+            .border_1()
+            .border_color(BORDER)
+            .bg(WHITE)
+            .shadow_lg()
+            .p_1()
+            .flex()
+            .flex_col();
+        for analyser in self.state.compatible_analysers() {
+            let id = analyser.id.clone();
+            let selected = self.state.selected_analyser.as_ref() == Some(&id);
+            let title = if id == "atr" {
+                "Card read".to_string()
+            } else {
+                analyser.title.clone()
+            };
+            menu = menu.child(
+                div()
+                    .id(SharedString::from(format!("analyser-{id}")))
+                    .px_3()
+                    .py_2()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .bg(if selected { GREEN_SOFT } else { WHITE })
+                    .hover(|style| style.bg(CANVAS))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |app, _, _, cx| {
+                            app.state.selected_analyser = Some(id.clone());
+                            app.analyser_menu_open = false;
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("{title} {}", analyser.version)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(MUTED)
+                            .child(analyser.description.clone()),
+                    ),
+            );
         }
+        menu
     }
-}
 
-fn answer(
-    controller: DesktopController,
-    mut state: Signal<DesktopState>,
-    request: cardpeek_app::InteractionId,
-    response: InteractionResponse,
-) -> impl FnMut(dioxus::events::MouseEvent) {
-    move |_| {
-        controller.answer(
-            AnswerInteraction {
-                request: request.clone(),
-                response: response.clone(),
-            },
-            &mut state.write(),
+    fn input_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let mut menu = div()
+            .id("analysis-input-menu")
+            .on_mouse_down_out(cx.listener(|app, _, _, cx| {
+                app.input_menu_open = false;
+                cx.notify();
+            }))
+            .absolute()
+            .top(px(38.))
+            .left_0()
+            .w(px(330.))
+            .max_h(px(280.))
+            .overflow_y_scroll()
+            .rounded_md()
+            .border_1()
+            .border_color(BORDER)
+            .bg(WHITE)
+            .shadow_lg()
+            .p_1()
+            .flex()
+            .flex_col();
+        menu = menu.child(
+            div()
+                .id("input-live")
+                .px_3()
+                .py_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .bg(if self.state.analysis_input == AnalysisInput::LiveCard {
+                    GREEN_SOFT
+                } else {
+                    WHITE
+                })
+                .hover(|style| style.bg(CANVAS))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.select_analysis_input(AnalysisInput::LiveCard);
+                        app.input_menu_open = false;
+                        cx.notify();
+                    }),
+                )
+                .child("Live card"),
         );
+        if let Some(trace) = &self.state.trace {
+            let path = self.state.trace_path.as_ref().map_or_else(
+                || "Current capture".into(),
+                |path| path.display().to_string(),
+            );
+            for segment in trace.segments() {
+                let index = segment.index;
+                let selected =
+                    self.state.analysis_input == AnalysisInput::TraceSegment { segment: index };
+                menu = menu.child(
+                    div()
+                        .id(("analysis-segment", index))
+                        .px_3()
+                        .py_2()
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .bg(if selected { GREEN_SOFT } else { WHITE })
+                        .hover(|style| style.bg(CANVAS))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |app, _, _, cx| {
+                                app.controller.select_segment(index, &mut app.state);
+                                app.input_menu_open = false;
+                                cx.notify();
+                            }),
+                        )
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(format!("Trace segment {}", index + 1)),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(MUTED)
+                                .child(format!("{path} / {} records", segment.records.len())),
+                        ),
+                );
+            }
+        }
+        menu
+    }
+
+    fn tree_panel(&mut self, cx: &mut Context<'_, Self>) -> Div {
+        let node_count = self
+            .state
+            .document
+            .as_ref()
+            .map_or(0, |document| document.document.node_count());
+        panel()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .px_4()
+                    .h(px(50.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Decoded data"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(MUTED)
+                            .child(format!("{node_count} nodes")),
+                    ),
+            )
+            .child(
+                div()
+                    .p_3()
+                    .flex()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(div().flex_1().relative().child(self.search.clone()).when(
+                        !self.state.search.is_empty(),
+                        |element| {
+                            element.child(
+                                icon_button("clear-search", "\u{f00d}", "Clear search", true)
+                                    .absolute()
+                                    .right(px(7.))
+                                    .top(px(5.))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|app, _, _, cx| {
+                                            app.search.update(cx, |search, cx| {
+                                                search.set_text("", cx);
+                                            });
+                                            cx.notify();
+                                        }),
+                                    ),
+                            )
+                        },
+                    ))
+                    .child(
+                        icon_button("collapse-all", "\u{f100}", "Collapse all", true)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|app, _, _, cx| {
+                                    app.state.collapse_to_second_level();
+                                    cx.notify();
+                                }),
+                            ),
+                    )
+                    .child(
+                        icon_button("expand-all", "\u{f103}", "Expand all", true).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|app, _, _, cx| {
+                                app.state.expand_all();
+                                cx.notify();
+                            }),
+                        ),
+                    ),
+            )
+            .child(self.result_tree(cx))
+            .child(
+                div()
+                    .h(px(30.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .border_t_1()
+                    .border_color(BORDER)
+                    .text_xs()
+                    .text_color(MUTED)
+                    .child("Immutable document / Local data"),
+            )
+    }
+
+    fn result_tree(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
+        let searching = !self.state.search.trim().is_empty();
+        let key = self.state.document.as_ref().map(|document| TreeCacheKey {
+            run_id: document.run_id.clone(),
+            revision: document.revision,
+            search: self.state.search.clone(),
+            expanded: self.state.expanded.iter().cloned().collect(),
+        });
+        if self.tree_key != key {
+            self.tree_rows = Rc::new(
+                self.state
+                    .visible_rows()
+                    .into_iter()
+                    .map(|row| (row.node.clone(), row.depth, row.expanded))
+                    .collect(),
+            );
+            self.tree_key = key;
+        }
+        if searching && self.tree_rows.is_empty() {
+            return div()
+                .flex_1()
+                .min_h_0()
+                .p_2()
+                .child(empty_box("No matching result nodes."))
+                .into_any_element();
+        }
+        let row_count = self.tree_rows.len();
+        let rows = self.tree_rows.clone();
+        uniform_list(
+            "result-tree",
+            row_count,
+            cx.processor(move |app, range: std::ops::Range<usize>, _, cx| {
+                range
+                    .map(|index| {
+                        let (node, depth, expanded) = rows[index].clone();
+                        app.tree_node(&node, depth, expanded, searching, index, cx)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .flex_1()
+        .w_full()
+        .min_w_0()
+        .min_h_0()
+        .into_any_element()
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn tree_node(
+        &self,
+        node: &ResultNode,
+        depth: usize,
+        expanded: bool,
+        searching: bool,
+        index: usize,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        let id = node.id.to_string();
+        let has_children = !node.children.is_empty();
+        let selected = self.state.selected_node.as_ref() == Some(&id);
+        let value = node_value(node)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let copy_text = format!("{}\t{}", node.label, value);
+        let symbol = node.class.chars().next().unwrap_or('#').to_string();
+        div()
+            .id(SharedString::from(format!("node-{id}")))
+            .w_full()
+            .min_w_0()
+            .h(px(30.))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .pl(px(f32::from(
+                u16::try_from(depth.min(32)).unwrap_or(32) * 14 + 6,
+            )))
+            .pr_2()
+            .rounded_sm()
+            .flex()
+            .items_center()
+            .gap_2()
+            .cursor_pointer()
+            .bg(if selected {
+                GREEN_SOFT
+            } else if index.is_multiple_of(2) {
+                WHITE
+            } else {
+                CANVAS
+            })
+            .hover(move |style| {
+                if selected {
+                    style.bg(GREEN_SOFT)
+                } else {
+                    style.bg(BORDER)
+                }
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |app, _, _, cx| {
+                    app.state.selected_node = Some(id.clone());
+                    if has_children && !searching && !app.state.expanded.remove(&id) {
+                        app.state.expanded.insert(id.clone());
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                    app.context_menu = Some(ContextMenu {
+                        position: event.position,
+                        text: copy_text.clone(),
+                    });
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .w(px(10.))
+                    .text_xs()
+                    .text_color(MUTED)
+                    .font_family("Font Awesome 7 Free Solid")
+                    .child(if has_children {
+                        if expanded || searching {
+                            "\u{f078}"
+                        } else {
+                            "\u{f054}"
+                        }
+                    } else {
+                        ""
+                    }),
+            )
+            .child(
+                div()
+                    .size(px(20.))
+                    .rounded_sm()
+                    .bg(if selected { GREEN } else { CANVAS })
+                    .text_color(if selected { WHITE } else { MUTED })
+                    .text_xs()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(symbol),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_sm()
+                    .text_ellipsis()
+                    .child(node.label.clone()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_xs()
+                    .text_color(MUTED)
+                    .text_ellipsis()
+                    .child(value),
+            )
+            .into_any_element()
+    }
+
+    fn node_details(&self) -> AnyElement {
+        let Some(node) = self.state.selected() else {
+            return panel()
+                .w_3_5()
+                .h_full()
+                .child(empty_box("Select a result node."))
+                .into_any_element();
+        };
+        let size = node
+            .size_bits
+            .map_or_else(|| "Not specified".into(), |size| format!("{size} bits"));
+        let mime_type = node.mime_type.as_deref().unwrap_or("Not specified");
+        let source = node.provenance.as_ref().map_or_else(
+            || "Not specified".into(),
+            |source| source.record.to_string(),
+        );
+        let document = self.state.document.as_ref().map_or_else(
+            || "Not available".into(),
+            |document| format!("{} / rev. {}", document.document.id, document.revision),
+        );
+        panel()
+            .w(px(self.details_width))
+            .flex_shrink_0()
+            .h_full()
+            .id("node-details")
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .p_4()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(node.label.clone()),
+                            )
+                            .child(badge(&node.class, MUTED, CANVAS)),
+                    )
+                    .child(note(&format!("{} / {source}", node.id))),
+            )
+            .child(
+                div()
+                    .m_4()
+                    .p_4()
+                    .rounded_md()
+                    .bg(GREEN_SOFT)
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(GREEN_DARK)
+                            .child("HUMAN-READABLE VALUE"),
+                    )
+                    .child(div().mt_2().text_sm().child(node_value(node))),
+            )
+            .child(
+                div()
+                    .px_4()
+                    .pb_4()
+                    .child(detail_row("Exact size", &size))
+                    .child(detail_row("Node ID", &node.id.to_string()))
+                    .child(detail_row("Value class", &node.class))
+                    .child(detail_row("MIME type", mime_type))
+                    .child(detail_row("Source record", &source))
+                    .child(detail_row("Document", &document)),
+            )
+            .into_any_element()
+    }
+
+    fn run_details(&self, cx: &mut Context<'_, Self>) -> Div {
+        let progress = progress_percent(self.state.progress.as_ref());
+        panel()
+            .h(px(self.tools_height))
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .h(px(42.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Run details"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(MUTED)
+                            .child(self.state.run_status.label()),
+                    )
+                    .child(
+                        div().w(px(90.)).h(px(4.)).rounded_full().bg(CANVAS).child(
+                            div()
+                                .h_full()
+                                .w(gpui::relative(f32::from(progress.min(100) as u16) / 100.))
+                                .rounded_full()
+                                .bg(GREEN),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(MUTED)
+                            .child(format!("{progress}%")),
+                    )
+                    .child(div().flex_1())
+                    .child(button(
+                        "close-run-details",
+                        "Hide",
+                        ButtonKind::Quiet,
+                        true,
+                        cx.listener(|app, _, _, cx| {
+                            app.state.run_details_open = false;
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(
+                        div()
+                            .w_1_2()
+                            .min_w_0()
+                            .border_r_1()
+                            .border_color(BORDER)
+                            .child(self.run_exchanges(cx)),
+                    )
+                    .child(div().w_1_2().min_w_0().child(self.activity_log(cx))),
+            )
+    }
+
+    fn run_exchanges(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+        exchange_list("run-exchanges", &self.state.exchanges, cx)
+    }
+
+    fn session_exchanges(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+        exchange_list("session-exchanges", &self.state.session_exchanges, cx)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn trace_page(&mut self, cx: &mut Context<'_, Self>) -> Div {
+        let path = self.state.trace_path.as_ref().map_or_else(
+            || "Current capture".into(),
+            |path| path.display().to_string(),
+        );
+        let segments = self
+            .state
+            .trace
+            .as_ref()
+            .map_or(0, |trace| trace.segments().len());
+        let records = self
+            .state
+            .trace
+            .as_ref()
+            .map_or(0, |trace| trace.records.len());
+        let captures = self
+            .state
+            .trace
+            .as_ref()
+            .map_or(0, |trace| trace.captures.len());
+        div()
+            .size_full()
+            .p_5()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(page_head(
+                        "Trace",
+                        "Inspect exact records in capture order without changing hardware.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(button(
+                                "load-current-session",
+                                "Load current session",
+                                ButtonKind::Normal,
+                                self.state.capture_trace.is_some(),
+                                cx.listener(|app, _, _, cx| {
+                                    app.state.open_capture_in_trace();
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(button(
+                                "open-trace",
+                                "Import trace",
+                                ButtonKind::Normal,
+                                true,
+                                cx.listener(|app, _, _, _| app.controller.select_trace_file()),
+                            ))
+                            .child(button(
+                                "export-open-trace",
+                                "Export trace",
+                                ButtonKind::Normal,
+                                self.state.trace.is_some(),
+                                cx.listener(|app, _, _, cx| {
+                                    app.open_export(
+                                        ExportKind::Trace,
+                                        ExportTraceSource::OpenTrace,
+                                        cx,
+                                    );
+                                }),
+                            )),
+                    ),
+            )
+            .child(
+                panel()
+                    .p_3()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(path),
+                    )
+                    .child(note(&format!(
+                        "{segments} segments / {records} records / {captures} capture bundles"
+                    )))
+                    .child(button(
+                        "decode-segment",
+                        "Decode in Analysis",
+                        ButtonKind::Primary,
+                        self.state.trace.is_some(),
+                        cx.listener(|app, _, _, cx| {
+                            let segment = app.state.selected_trace_segment;
+                            app.state
+                                .select_analysis_input(AnalysisInput::TraceSegment { segment });
+                            app.state.screen = Screen::Analysis;
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .child(
+                panel()
+                    .p_3()
+                    .flex()
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        div().relative().child(self.trace_segment_picker(cx)).when(
+                            self.trace_segment_menu_open,
+                            |element| {
+                                element.child(deferred(self.trace_segment_menu(cx)).priority(1))
+                            },
+                        ),
+                    )
+                    .child(div().w(px(320.)).child(self.trace_search.clone())),
+            )
+            .child(panel().flex_1().min_h_0().child(self.trace_records(cx)))
+    }
+
+    fn trace_segment_picker(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        button(
+            "trace-segment-picker",
+            format!("Segment {}", self.state.selected_trace_segment + 1),
+            ButtonKind::Normal,
+            self.state.trace.is_some(),
+            cx.listener(|app, _, window, cx| {
+                app.trace_segment_menu_open = !app.trace_segment_menu_open;
+                window.prevent_default();
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
+        .w(px(150.))
+        .child(
+            div()
+                .pl_2()
+                .font_family("Font Awesome 7 Free Solid")
+                .text_size(px(12.))
+                .child("\u{f078}"),
+        )
+    }
+
+    fn trace_segment_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let mut menu = div()
+            .id("trace-segment-menu")
+            .on_mouse_down_out(cx.listener(|app, _, _, cx| {
+                app.trace_segment_menu_open = false;
+                cx.notify();
+            }))
+            .absolute()
+            .top(px(38.))
+            .left_0()
+            .w(px(220.))
+            .max_h(px(280.))
+            .overflow_y_scroll()
+            .rounded_md()
+            .border_1()
+            .border_color(BORDER)
+            .bg(WHITE)
+            .shadow_lg()
+            .p_1()
+            .flex()
+            .flex_col();
+        if let Some(trace) = &self.state.trace {
+            for segment in trace.segments() {
+                let index = segment.index;
+                let selected = index == self.state.selected_trace_segment;
+                menu = menu.child(
+                    div()
+                        .id(("trace-segment", index))
+                        .px_3()
+                        .py_2()
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .bg(if selected { GREEN_SOFT } else { WHITE })
+                        .hover(|style| style.bg(CANVAS))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |app, _, _, cx| {
+                                app.controller.select_segment(index, &mut app.state);
+                                app.trace_segment_menu_open = false;
+                                cx.notify();
+                            }),
+                        )
+                        .child(format!("Segment {}", index + 1)),
+                );
+            }
+        }
+        menu
+    }
+
+    fn trace_records(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
+        let Some(trace) = &self.state.trace else {
+            return empty_box("Open a trace or open the current Reader capture.")
+                .into_any_element();
+        };
+        let query = self.state.trace_search.clone();
+        let selected_segment = self.state.selected_trace_segment;
+        let rows: Vec<(usize, TraceRecord)> = trace
+            .segments()
+            .into_iter()
+            .filter(|segment| segment.index == selected_segment)
+            .flat_map(|segment| {
+                segment
+                    .records
+                    .iter()
+                    .cloned()
+                    .map(move |record| (segment.index, record))
+            })
+            .filter(|(segment, record)| trace_record_matches(record, *segment, &query))
+            .collect();
+        if rows.is_empty() {
+            return empty_box("No trace records match the selected segment and search.")
+                .into_any_element();
+        }
+        let rows = Rc::new(rows);
+        uniform_list(
+            "trace-records",
+            rows.len(),
+            cx.processor(move |app, range: std::ops::Range<usize>, _, cx| {
+                range
+                    .map(|index| {
+                        let (segment, record) = rows[index].clone();
+                        app.trace_record(segment, &record, index, cx)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .size_full()
+        .into_any_element()
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn trace_record(
+        &self,
+        segment: usize,
+        record: &TraceRecord,
+        index: usize,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        let id = record.id().to_string();
+        let expanded = self.state.trace_expanded.contains(&id);
+        let captures = self.state.trace.as_ref().map_or(0, |trace| {
+            trace
+                .captures
+                .iter()
+                .filter(|capture| {
+                    capture.segment == segment
+                        && capture
+                            .values
+                            .iter()
+                            .any(|value| value.source.as_str() == id)
+                })
+                .count()
+        });
+        let (summary, details, copy_text) = match record {
+            TraceRecord::Reset { mode, atr, .. } => {
+                let bytes = spaced_hex(atr.as_bytes());
+                (
+                    format!("RESET {mode:?} / {bytes}"),
+                    vec![("ATR", bytes.clone())],
+                    format!("RESET\t{id}\t{bytes}"),
+                )
+            }
+            TraceRecord::Command {
+                command, response, ..
+            } => {
+                let tx = spaced_hex(command);
+                let rx = spaced_hex(&response.data);
+                let status = format!("{:04X}", response.status.value());
+                (
+                    format!("TX {tx}"),
+                    vec![
+                        ("TX", tx.clone()),
+                        ("RX", rx.clone()),
+                        ("Status", status.clone()),
+                    ],
+                    format!("TX\t{tx}\nRX\t{rx}\t{status}"),
+                )
+            }
+        };
+        let height = if expanded && matches!(record, TraceRecord::Command { .. }) {
+            116.
+        } else if expanded {
+            76.
+        } else {
+            40.
+        };
+        div()
+            .id(SharedString::from(format!("trace-record-{id}")))
+            .h(px(height))
+            .w_full()
+            .min_w_0()
+            .overflow_hidden()
+            .p_2()
+            .bg(if index.is_multiple_of(2) {
+                WHITE
+            } else {
+                CANVAS
+            })
+            .hover(|style| style.bg(BORDER))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener({
+                    let id = id.clone();
+                    move |app, _, _, cx| {
+                        if !app.state.trace_expanded.remove(&id) {
+                            app.state.trace_expanded.insert(id.clone());
+                        }
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                    app.context_menu = Some(ContextMenu {
+                        position: event.position,
+                        text: copy_text.clone(),
+                    });
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
+                    .child(div().w(px(16.)).child(if expanded { "v" } else { ">" }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(summary),
+                    )
+                    .child(div().text_color(MUTED).child(format!(
+                        "Segment {} / {id} / {captures} captures",
+                        segment + 1
+                    ))),
+            )
+            .when(expanded, |element| {
+                element.child(div().pl_6().pt_1().children(details.into_iter().map(
+                    |(label, value)| {
+                        div()
+                            .flex()
+                            .gap_2()
+                            .text_xs()
+                            .child(div().w(px(48.)).text_color(MUTED).child(label))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(value),
+                            )
+                    },
+                )))
+            })
+            .into_any_element()
+    }
+
+    fn activity_log(&self, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let mut list = div()
+            .id("activity-log")
+            .size_full()
+            .overflow_y_scroll()
+            .p_2();
+        list = list.child(
+            div()
+                .flex()
+                .justify_between()
+                .items_center()
+                .pb_2()
+                .child(note(&format!(
+                    "{} retained messages",
+                    self.state.logs.len()
+                )))
+                .child(button(
+                    "clear-log",
+                    "Clear log",
+                    ButtonKind::Quiet,
+                    true,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.logs.clear();
+                        cx.notify();
+                    }),
+                )),
+        );
+        for (index, log) in self.state.logs.iter().rev().take(50).enumerate() {
+            let copy_text = format!("#{}\t{:?}\t{}", log.sequence, log.level, log.message);
+            list = list.child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .py_1()
+                    .px_2()
+                    .text_xs()
+                    .bg(if index.is_multiple_of(2) {
+                        WHITE
+                    } else {
+                        CANVAS
+                    })
+                    .hover(|style| style.bg(BORDER))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                            app.context_menu = Some(ContextMenu {
+                                position: event.position,
+                                text: copy_text.clone(),
+                            });
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .w(px(34.))
+                            .text_color(MUTED)
+                            .child(format!("#{}", log.sequence)),
+                    )
+                    .child(
+                        div()
+                            .w(px(50.))
+                            .text_color(if matches!(log.level, cardpeek_app::LogLevel::Error) {
+                                RED
+                            } else {
+                                GREEN_DARK
+                            })
+                            .child(format!("{:?}", log.level)),
+                    )
+                    .child(div().flex_1().child(log.message.clone())),
+            );
+        }
+        list
+    }
+
+    fn transmit_tool(&self, cx: &mut Context<'_, Self>) -> Div {
+        div()
+            .p_4()
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_1().child(self.apdu.clone()))
+                    .child(button(
+                        "send-apdu",
+                        "Send APDU",
+                        ButtonKind::Primary,
+                        self.state.card_present() && !self.state.apdu_command.trim().is_empty(),
+                        cx.listener(Self::transmit),
+                    )),
+            )
+            .child(note("Exact bytes only. No implicit retry or GET RESPONSE."))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn library_page(&self, cx: &mut Context<'_, Self>) -> Div {
+        let mut library = div()
+            .id("analyser-library")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll();
+        if self.state.analysers.is_empty() {
+            library = library.child(empty_box(
+                "No analysers installed. Add a trusted Lua script to make analysis available.",
+            ));
+        }
+        for analyser in &self.state.analysers {
+            let id = analyser.id.clone();
+            let file = analyser
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("analyser.lua");
+            library = library.child(
+                div()
+                    .p_4()
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(
+                        div()
+                            .size(px(42.))
+                            .rounded_md()
+                            .bg(GREEN_SOFT)
+                            .text_color(GREEN_DARK)
+                            .font_weight(FontWeight::BOLD)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("Lua"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(analyser.title.clone()),
+                            )
+                            .child(note(&analyser.description))
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_xs()
+                                    .text_color(MUTED)
+                                    .child(format!("{file} / {}", analyser.id)),
+                            )
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .flex()
+                                    .gap_1()
+                                    .when(analyser.capabilities.live_collection, |element| {
+                                        element.child(badge("LIVE", GREEN_DARK, GREEN_SOFT))
+                                    })
+                                    .when(analyser.capabilities.offline_decoding, |element| {
+                                        element.child(badge("DECODE", GREEN_DARK, GREEN_SOFT))
+                                    })
+                                    .when(analyser.capabilities.replay, |element| {
+                                        element.child(badge("REPLAY", AMBER, AMBER_SOFT))
+                                    })
+                                    .child(note(
+                                        analyser
+                                            .capture_schema
+                                            .as_deref()
+                                            .unwrap_or("No capture schema"),
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(MUTED)
+                            .child(format!("v{}", analyser.version)),
+                    )
+                    .child(badge("INSTALLED", MUTED, CANVAS))
+                    .child(button(
+                        SharedString::from(format!("remove-{id}")),
+                        "Remove",
+                        ButtonKind::Quiet,
+                        !self.state.run_running(),
+                        cx.listener(move |app, _, _, cx| {
+                            app.state.selected_analyser = Some(id.clone());
+                            app.state.pending_remove = Some(id.clone());
+                            cx.notify();
+                        }),
+                    )),
+            );
+        }
+        div()
+            .size_full()
+            .p_6()
+            .child(
+                div()
+                    .mb_5()
+                    .child(page_head("Library", "Manage trusted analysers, capabilities, and capture schemas.")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_5()
+                    .items_start()
+                    .child(
+                        panel()
+                            .w_2_3()
+                            .min_h(px(400.))
+                            .flex()
+                            .flex_col()
+                            .child(div().px_4().h(px(54.)).flex().items_center().justify_between().border_b_1().border_color(BORDER).child(div().child(div().font_weight(FontWeight::SEMIBOLD).child("Analyser library")).child(note("Metadata is read without executing scripts"))).child(badge(format!("{} INSTALLED", self.state.analysers.len()), MUTED, CANVAS)))
+                            .child(library)
+                            .child(div().p_3().flex().items_center().justify_between().child(note("User library / Shared with the CLI")).child(button("add-analyser", "Add analyser", ButtonKind::Primary, !self.state.run_running(), cx.listener(|app, _, _, cx| {
+                                app.controller.select_analyser_files();
+                                cx.notify();
+                            })))),
+                    )
+                    .child(
+                        panel()
+                            .w_1_3()
+                            .child(setting_section("Manual analyser selection", "Choose the analyser in Analysis. The application does not issue automatic detection probes."))
+                            .child(setting_section("Library location", &self.state.analyser_directory))
+                            .child(div().m_4().p_3().rounded_md().bg(AMBER_SOFT).child(div().font_weight(FontWeight::SEMIBOLD).text_color(AMBER).child("Only import scripts you trust")).child(note("Analysers can access local files and system facilities. They are not sandboxed.")))
+                            .child(div().m_4().p_3().rounded_md().bg(GREEN_SOFT).child(div().font_weight(FontWeight::SEMIBOLD).text_color(GREEN_DARK).child("This app sends no telemetry")).child(note("Card data and traces stay on this device unless you export them."))),
+                    ),
+            )
+    }
+
+    fn dialogs(&self, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
+        if self.state.interaction.is_some() {
+            return self.interaction_dialog(cx).into_any_element().into();
+        }
+        if self.state.show_export {
+            return self.export_dialog(cx).into_any_element().into();
+        }
+        if self.state.pending_remove.is_some() {
+            return self.remove_dialog(cx).into_any_element().into();
+        }
+        None
+    }
+
+    fn remove_dialog(&self, cx: &mut Context<'_, Self>) -> Div {
+        let id = self.state.pending_remove.clone().unwrap_or_default();
+        let title = self
+            .state
+            .analysers
+            .iter()
+            .find(|analyser| analyser.id == id)
+            .map_or_else(|| id.clone(), |analyser| analyser.title.clone());
+        modal(
+            "Remove analyser?",
+            &format!("{title} will be removed from the user library."),
+            div().p_5().child(notice_box("This changes the library on disk", "The installed Lua file will be deleted. Other sessions and the CLI will use the updated library.", RED, RED_SOFT)),
+            div().child(button("cancel-remove", "Cancel", ButtonKind::Normal, true, cx.listener(|app, _, _, cx| {
+                app.state.pending_remove = None;
+                cx.notify();
+            }))).child(button("confirm-remove", "Remove analyser", ButtonKind::Danger, true, cx.listener(|app, _, _, cx| {
+                app.state.pending_remove = None;
+                app.controller.remove_analyser(&mut app.state);
+                cx.notify();
+            }))),
+        )
+    }
+
+    fn export_dialog(&self, cx: &mut Context<'_, Self>) -> Div {
+        let trace = self.state.export_kind == ExportKind::Trace;
+        let mut body = div().p_5().flex().flex_col().gap_3();
+        if trace {
+            body = body
+                .child(radio_option(
+                    "Raw trace",
+                    "Exact ATR and APDU data. Required for faithful replay.",
+                    self.state.trace_export_mode == TraceExportMode::Raw,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.trace_export_mode = TraceExportMode::Raw;
+                        cx.notify();
+                    }),
+                ))
+                .child(radio_option(
+                    "Sanitised trace",
+                    "Redact ATR, command data, and response data.",
+                    self.state.trace_export_mode == TraceExportMode::Sanitised,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.trace_export_mode = TraceExportMode::Sanitised;
+                        cx.notify();
+                    }),
+                ))
+                .child(notice_box(
+                    "Card data is sensitive",
+                    "Review exports before sharing. Sanitisation cannot remove every secret.",
+                    AMBER,
+                    AMBER_SOFT,
+                ));
+        } else {
+            body = body.child(notice_box(
+                "Versioned result document",
+                "The export preserves stable node identifiers, decoded values, and provenance.",
+                GREEN_DARK,
+                GREEN_SOFT,
+            ));
+        }
+        body = body.child(field_label("Destination"));
+        if let Some(field) = &self.export {
+            body = body.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_1().child(field.clone()))
+                    .child(button(
+                        "browse-export",
+                        "Browse",
+                        ButtonKind::Normal,
+                        true,
+                        cx.listener(|app, _, _, _| app.controller.select_export_destination()),
+                    )),
+            );
+        }
+        modal(
+            if trace {
+                "Export session trace"
+            } else {
+                "Export analysis result"
+            },
+            if trace {
+                "Save the recorded exchanges for replay or sharing."
+            } else {
+                "Save the immutable result document as native JSON."
+            },
+            body,
+            div()
+                .child(button(
+                    "cancel-export",
+                    "Cancel",
+                    ButtonKind::Normal,
+                    true,
+                    cx.listener(|app, _, _, cx| {
+                        app.state.show_export = false;
+                        cx.notify();
+                    }),
+                ))
+                .child(button(
+                    "confirm-export",
+                    "Export JSON",
+                    ButtonKind::Primary,
+                    true,
+                    cx.listener(|app, _, _, cx| {
+                        app.controller.export(&mut app.state);
+                        cx.notify();
+                    }),
+                )),
+        )
+    }
+
+    fn interaction_dialog(&self, cx: &mut Context<'_, Self>) -> Div {
+        let Some(request) = self.state.interaction.clone() else {
+            return div();
+        };
+        let id = request.id.clone();
+        let prompt = match &request.kind {
+            InteractionKind::Question { prompt }
+            | InteractionKind::TextInput { prompt, .. }
+            | InteractionKind::SecretInput { prompt }
+            | InteractionKind::FileSelection { prompt, .. } => prompt.clone(),
+        };
+        let mut body = div().p_5().child(div().mb_4().child(prompt));
+        let mut footer = div();
+        match request.kind {
+            InteractionKind::Question { .. } => {
+                let no_id = id.clone();
+                footer = footer
+                    .child(button(
+                        "answer-no",
+                        "No",
+                        ButtonKind::Normal,
+                        true,
+                        cx.listener(move |app, _, _, cx| {
+                            app.answer(no_id.clone(), InteractionResponse::Bool(false));
+                            cx.notify();
+                        }),
+                    ))
+                    .child(button(
+                        "answer-yes",
+                        "Yes",
+                        ButtonKind::Primary,
+                        true,
+                        cx.listener(move |app, _, _, cx| {
+                            app.answer(id.clone(), InteractionResponse::Bool(true));
+                            cx.notify();
+                        }),
+                    ));
+            }
+            InteractionKind::FileSelection { must_exist, .. } => {
+                body = body
+                    .child(button(
+                        "choose-interaction-file",
+                        "Choose file",
+                        ButtonKind::Normal,
+                        true,
+                        cx.listener(move |app, _, _, _| {
+                            app.controller.select_interaction_file(must_exist);
+                        }),
+                    ))
+                    .child(note(&self.state.interaction_file.as_ref().map_or_else(
+                        || "No file selected".into(),
+                        |path| path.display().to_string(),
+                    )));
+                footer = footer.child(button(
+                    "use-interaction-file",
+                    "Use selected file",
+                    ButtonKind::Primary,
+                    self.state.interaction_file.is_some(),
+                    cx.listener(move |app, _, _, cx| {
+                        if let Some(path) = app.state.interaction_file.clone() {
+                            app.answer(id.clone(), InteractionResponse::File(path));
+                            cx.notify();
+                        }
+                    }),
+                ));
+            }
+            kind @ (InteractionKind::TextInput { .. } | InteractionKind::SecretInput { .. }) => {
+                if let Some(field) = &self.interaction {
+                    body = body.child(field.clone());
+                }
+                if matches!(kind, InteractionKind::SecretInput { .. }) {
+                    body = body.child(note("Secret values never enter application logs."));
+                }
+                footer = footer.child(button(
+                    "submit-interaction",
+                    "Submit",
+                    ButtonKind::Primary,
+                    true,
+                    cx.listener(move |app, _, _, cx| {
+                        let text = app
+                            .interaction
+                            .as_ref()
+                            .map_or_else(String::new, |field| field.read(cx).text().to_string());
+                        let response = if matches!(kind, InteractionKind::SecretInput { .. }) {
+                            InteractionResponse::Secret(text)
+                        } else {
+                            InteractionResponse::Text(text)
+                        };
+                        app.answer(id.clone(), response);
+                        cx.notify();
+                    }),
+                ));
+            }
+        }
+        modal(
+            "Analyser request",
+            "The worker waits for this correlated response or cancellation.",
+            body,
+            footer,
+        )
+    }
+
+    fn answer(&mut self, request: cardpeek_app::InteractionId, response: InteractionResponse) {
+        self.controller
+            .answer(AnswerInteraction { request, response }, &mut self.state);
+        self.interaction = None;
+        self.interaction_id = None;
+    }
+
+    fn context_menu(&self, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
+        let menu = self.context_menu.as_ref()?;
+        let text = menu.text.clone();
+        Some(
+            deferred(
+                div()
+                    .id("context-menu")
+                    .absolute()
+                    .left(menu.position.x)
+                    .top(menu.position.y)
+                    .w(px(120.))
+                    .p_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(BORDER)
+                    .bg(WHITE)
+                    .shadow_lg()
+                    .on_mouse_down_out(cx.listener(|app, _, _, cx| {
+                        app.context_menu = None;
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .id("context-copy")
+                            .px_3()
+                            .py_2()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .text_sm()
+                            .hover(|style| style.bg(CANVAS))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |app, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                                    app.context_menu = None;
+                                    cx.notify();
+                                }),
+                            )
+                            .child("Copy"),
+                    ),
+            )
+            .with_priority(2)
+            .into_any_element(),
+        )
+    }
+
+    fn status_bar(&self, cx: &mut Context<'_, Self>) -> Div {
+        let latest = self.state.latest_notification();
+        let is_error =
+            latest.is_some_and(|notification| notification.level == NotificationLevel::Error);
+        let message = latest.map_or_else(
+            || "Ready".into(),
+            |notification| notification.message.clone(),
+        );
+        let history_label = if self.notification_history == NotificationHistory::Expanded {
+            "Hide history".into()
+        } else {
+            format!("History ({})", self.state.notifications.len())
+        };
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .border_t_1()
+            .border_color(BORDER)
+            .bg(WHITE)
+            .when(
+                self.notification_history == NotificationHistory::Expanded,
+                |element| element.child(self.notification_history(cx)),
+            )
+            .child(
+                div()
+                    .id("status-bar")
+                    .h(px(36.))
+                    .w_full()
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .size(px(7.))
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .bg(if is_error { RED } else { GREEN }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_sm()
+                            .text_color(if is_error { RED } else { INK })
+                            .child(message),
+                    )
+                    .child(
+                        button(
+                            "notification-history",
+                            history_label,
+                            ButtonKind::Quiet,
+                            true,
+                            cx.listener(|app, _, _, cx| {
+                                app.notification_history = match app.notification_history {
+                                    NotificationHistory::Collapsed => NotificationHistory::Expanded,
+                                    NotificationHistory::Expanded => NotificationHistory::Collapsed,
+                                };
+                                cx.notify();
+                            }),
+                        )
+                        .h(px(26.))
+                        .text_xs(),
+                    ),
+            )
+    }
+
+    fn notification_history(&self, cx: &mut Context<'_, Self>) -> Div {
+        let mut history = div()
+            .max_h(px(260.))
+            .w_full()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(BORDER);
+        history = history.child(
+            div()
+                .min_h(px(42.))
+                .px_4()
+                .py_2()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_between()
+                .border_b_1()
+                .border_color(BORDER)
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Notifications"),
+                )
+                .child(
+                    button(
+                        "clear-notifications",
+                        "Clear history",
+                        ButtonKind::Quiet,
+                        !self.state.notifications.is_empty(),
+                        cx.listener(|app, _, _, cx| {
+                            app.state.notifications.clear();
+                            cx.notify();
+                        }),
+                    )
+                    .h(px(28.))
+                    .text_xs(),
+                ),
+        );
+        if self.state.notifications.is_empty() {
+            return history.child(
+                div()
+                    .id("notification-history-list")
+                    .overflow_y_scroll()
+                    .child(empty_box("No notifications yet.")),
+            );
+        }
+        let mut messages = div()
+            .id("notification-history-list")
+            .max_h(px(218.))
+            .w_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col();
+        for notification in self.state.notifications.iter().rev() {
+            let is_error = notification.level == NotificationLevel::Error;
+            messages = messages.child(
+                div()
+                    .min_h(px(38.))
+                    .w_full()
+                    .px_4()
+                    .py_2()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .border_b_1()
+                    .border_color(BORDER)
+                    .child(
+                        div()
+                            .w(px(44.))
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(if is_error { RED } else { MUTED })
+                            .child(if is_error { "Error" } else { "Status" }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .child(notification.message.clone()),
+                    ),
+            );
+        }
+        history.child(messages)
     }
 }
 
-fn open_export(state: &mut DesktopState, kind: ExportKind) {
-    state.export_kind = kind;
-    state.export_destination = match kind {
-        ExportKind::Document => "atr-result.json",
-        ExportKind::Trace => "cardpeek-trace.json",
+impl Render for App {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let content = match self.state.screen {
+            Screen::Reader => self.reader_page(cx).into_any_element(),
+            Screen::Analysis => self.analysis_page(cx).into_any_element(),
+            Screen::Trace => self.trace_page(cx).into_any_element(),
+            Screen::Library => self.library_page(cx).into_any_element(),
+        };
+        div()
+            .relative()
+            .size_full()
+            .overflow_hidden()
+            .bg(CANVAS)
+            .text_color(INK)
+            .font_family("sans-serif")
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .child(self.header())
+                    .child(
+                        div().flex_1().min_h_0().flex().child(self.rail(cx)).child(
+                            div()
+                                .id("main-pane")
+                                .flex_1()
+                                .min_w_0()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .child(content),
+                        ),
+                    )
+                    .child(self.status_bar(cx)),
+            )
+            .children(self.dialogs(cx))
+            .children(self.context_menu(cx))
     }
-    .into();
-    state.show_export = true;
+}
+
+#[derive(Clone, Copy)]
+enum ButtonKind {
+    Normal,
+    Primary,
+    Quiet,
+    Danger,
+}
+
+fn icon_button(
+    id: impl Into<gpui::ElementId>,
+    icon: &'static str,
+    tooltip: &'static str,
+    enabled: bool,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(28.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_md()
+        .font_family("Font Awesome 7 Free Solid")
+        .text_sm()
+        .text_color(if enabled { MUTED } else { BORDER })
+        .when(enabled, |element| {
+            element
+                .cursor_pointer()
+                .hover(|style| style.bg(CANVAS).text_color(INK))
+                .active(|style| style.bg(GREEN_SOFT))
+                .tooltip(move |_, cx| cx.new(|_| Tooltip(tooltip)).into())
+        })
+        .child(icon)
+}
+
+struct Tooltip(&'static str);
+
+impl Render for Tooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<'_, Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(NAV)
+            .text_color(WHITE)
+            .text_xs()
+            .child(self.0)
+    }
+}
+
+fn button(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    kind: ButtonKind,
+    enabled: bool,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut gpui::App) + 'static,
+) -> Stateful<Div> {
+    let (background, foreground) = match kind {
+        ButtonKind::Primary => (
+            if enabled { GREEN } else { BORDER },
+            if enabled { WHITE } else { MUTED },
+        ),
+        ButtonKind::Normal => (WHITE, if enabled { INK } else { MUTED }),
+        ButtonKind::Quiet => (CANVAS, if enabled { GREEN_DARK } else { MUTED }),
+        ButtonKind::Danger => (if enabled { RED } else { BORDER }, WHITE),
+    };
+    div()
+        .id(id)
+        .h(px(38.))
+        .px_3()
+        .flex_shrink_0()
+        .rounded_md()
+        .border_1()
+        .border_color(match kind {
+            ButtonKind::Normal => BORDER,
+            _ => background,
+        })
+        .bg(background)
+        .text_color(foreground)
+        .text_size(px(14.))
+        .font_weight(FontWeight::MEDIUM)
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(enabled, |element| {
+            element
+                .cursor_pointer()
+                .hover(move |style| {
+                    style.bg(match kind {
+                        ButtonKind::Primary => GREEN_DARK,
+                        ButtonKind::Normal => CANVAS,
+                        ButtonKind::Quiet => GREEN_SOFT,
+                        ButtonKind::Danger => rgb(0x843030),
+                    })
+                })
+                .on_mouse_down(MouseButton::Left, on_click)
+        })
+        .child(label.into())
+}
+
+fn exchange_list(
+    id: &'static str,
+    exchanges: &[crate::state::Exchange],
+    cx: &mut Context<'_, App>,
+) -> AnyElement {
+    if exchanges.is_empty() {
+        return empty_box("No APDU exchanges.").into_any_element();
+    }
+    let rows = Rc::new(exchanges.to_vec());
+    uniform_list(
+        id,
+        rows.len(),
+        cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+            range
+                .map(|index| {
+                    let exchange = rows[index].clone();
+                    let copy_text = format!(
+                        "TX\t{}\t{}\nRX\t{}\t{}",
+                        exchange.command, exchange.record, exchange.data, exchange.status
+                    );
+                    div()
+                        .id(index)
+                        .h(px(62.))
+                        .w_full()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .p_2()
+                        .bg(if index.is_multiple_of(2) {
+                            WHITE
+                        } else {
+                            CANVAS
+                        })
+                        .hover(|style| style.bg(BORDER))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                                app.context_menu = Some(ContextMenu {
+                                    position: event.position,
+                                    text: copy_text.clone(),
+                                });
+                                cx.notify();
+                            }),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_3()
+                                .items_center()
+                                .text_xs()
+                                .child(
+                                    div()
+                                        .w(px(22.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(GREEN_DARK)
+                                        .child("TX"),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(exchange.command.clone()),
+                                )
+                                .child(div().text_color(MUTED).child(exchange.record.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_3()
+                                .items_center()
+                                .text_xs()
+                                .child(
+                                    div()
+                                        .w(px(22.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(MUTED)
+                                        .child("RX"),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(exchange.data.clone()),
+                                )
+                                .child(div().text_color(MUTED).child(exchange.status.clone())),
+                        )
+                })
+                .collect::<Vec<_>>()
+        }),
+    )
+    .size_full()
+    .into_any_element()
+}
+
+fn panel() -> Div {
+    div()
+        .bg(WHITE)
+        .rounded_lg()
+        .border_1()
+        .border_color(BORDER)
+        .overflow_hidden()
+}
+
+fn panel_head(title: &'static str, badge_label: &'static str) -> Div {
+    div()
+        .h(px(54.))
+        .px_4()
+        .flex()
+        .items_center()
+        .justify_between()
+        .border_b_1()
+        .border_color(BORDER)
+        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+        .child(badge(badge_label, MUTED, CANVAS))
+}
+
+fn panel_body() -> Div {
+    div().p_4()
+}
+
+fn badge(label: impl Into<SharedString>, foreground: Rgba, background: Rgba) -> Div {
+    div()
+        .px_2()
+        .h(px(23.))
+        .rounded_sm()
+        .bg(background)
+        .text_color(foreground)
+        .text_size(px(11.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .flex()
+        .items_center()
+        .child(label.into())
+}
+
+fn page_head(title: &'static str, description: &'static str) -> Div {
+    div()
+        .child(
+            div()
+                .text_2xl()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .child(note(description))
+}
+
+fn field_label(label: &'static str) -> Div {
+    div()
+        .mt_4()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(MUTED)
+        .child(label)
+}
+
+fn note(text: &str) -> Div {
+    div()
+        .mt_1()
+        .text_size(px(14.))
+        .line_height(px(20.))
+        .text_color(MUTED)
+        .child(text.to_owned())
+}
+
+fn detail_row(label: &'static str, value: &str) -> Div {
+    div()
+        .py_3()
+        .border_b_1()
+        .border_color(BORDER)
+        .flex()
+        .gap_4()
+        .child(
+            div()
+                .w(px(100.))
+                .flex_shrink_0()
+                .text_sm()
+                .text_color(MUTED)
+                .child(label),
+        )
+        .child(div().flex_1().min_w_0().text_sm().child(value.to_owned()))
+}
+
+fn setting_section(title: &'static str, text: &str) -> Div {
+    div()
+        .p_4()
+        .border_b_1()
+        .border_color(BORDER)
+        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+        .child(note(text))
+}
+
+fn notice_box(title: &'static str, text: &'static str, foreground: Rgba, background: Rgba) -> Div {
+    div()
+        .p_3()
+        .rounded_md()
+        .bg(background)
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(foreground)
+                .child(title),
+        )
+        .child(note(text))
+}
+
+fn radio_option(
+    title: &'static str,
+    text: &'static str,
+    selected: bool,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("trace-mode-{title}")))
+        .p_3()
+        .rounded_md()
+        .border_1()
+        .border_color(if selected { GREEN } else { BORDER })
+        .bg(if selected { GREEN_SOFT } else { WHITE })
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, on_click)
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(format!("{} {title}", if selected { "[x]" } else { "[ ]" })),
+        )
+        .child(note(text))
+}
+
+fn modal(title: &'static str, subtitle: &str, body: Div, actions: Div) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .bg(gpui::rgba(0x10252999))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .w(px(520.))
+                .max_h(px(650.))
+                .rounded_lg()
+                .bg(WHITE)
+                .shadow_2xl()
+                .child(
+                    div()
+                        .p_5()
+                        .border_b_1()
+                        .border_color(BORDER)
+                        .child(
+                            div()
+                                .text_xl()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(title),
+                        )
+                        .child(note(subtitle)),
+                )
+                .child(body)
+                .child(
+                    div()
+                        .p_4()
+                        .border_t_1()
+                        .border_color(BORDER)
+                        .flex()
+                        .justify_end()
+                        .gap_2()
+                        .child(actions.flex().gap_2()),
+                ),
+        )
+}
+
+fn brand_mark() -> Div {
+    div()
+        .size(px(36.))
+        .rounded_md()
+        .bg(GREEN)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .w(px(19.))
+                .h(px(25.))
+                .rounded_sm()
+                .border_2()
+                .border_color(WHITE)
+                .child(div().mx_1().mt_1().h(px(6.)).bg(WHITE)),
+        )
+}
+
+fn reader_device(replay: bool) -> Div {
+    div()
+        .w(px(52.))
+        .h(px(66.))
+        .rounded_md()
+        .bg(if replay { AMBER_SOFT } else { GREEN_SOFT })
+        .border_1()
+        .border_color(if replay { AMBER } else { GREEN })
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .w(px(28.))
+                .h(px(20.))
+                .rounded_sm()
+                .border_2()
+                .border_color(if replay { AMBER } else { GREEN }),
+        )
+}
+
+fn smart_card() -> Div {
+    div()
+        .w(px(82.))
+        .h(px(54.))
+        .rounded_md()
+        .bg(GREEN_SOFT)
+        .border_1()
+        .border_color(GREEN)
+        .p_2()
+        .child(
+            div()
+                .w(px(23.))
+                .h(px(18.))
+                .rounded_sm()
+                .bg(rgb(0xd9bc68))
+                .border_1()
+                .border_color(AMBER),
+        )
+        .child(
+            div()
+                .mt_2()
+                .w(px(40.))
+                .h(px(3.))
+                .rounded_full()
+                .bg(rgb(0x8cbcaf)),
+        )
+}
+
+fn empty_box(text: &'static str) -> Div {
+    div()
+        .p_4()
+        .text_sm()
+        .text_color(MUTED)
+        .text_center()
+        .child(text)
+}
+
+fn protocol_label(protocol: Protocol) -> &'static str {
+    match protocol {
+        Protocol::T0 => "T=0",
+        Protocol::T1 => "T=1",
+        Protocol::Other => "Other",
+    }
 }
 
 fn progress_percent(progress: Option<&Progress>) -> u64 {

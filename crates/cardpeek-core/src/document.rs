@@ -25,6 +25,12 @@ pub struct Provenance {
     /// Optional human-readable source operation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<String>,
+    /// Decoder analyser identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analyser: Option<String>,
+    /// Decoder analyser version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analyser_version: Option<String>,
 }
 
 /// One ordered node in a result document.

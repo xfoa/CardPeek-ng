@@ -1,4 +1,4 @@
-//! Lua analyser execution and `CardPeek` NG APIs.
+//! Lua analyser execution and `Cardpeek` NG APIs.
 
 use std::cell::{Cell, RefCell};
 use std::fs;
@@ -9,8 +9,8 @@ use cardpeek_analyser::{
     Cancellation, CardHost, EventSink, ExecutionRequest, HostError, LogLevel as AnalyserLogLevel,
 };
 use cardpeek_core::{
-    ApduCommand, ByteString, CoreError, NodeId, NodeValue, Protocol, Provenance, ResetMode,
-    ResultDocument, ResultNode, TraceRecordId,
+    ApduCommand, ByteString, CaptureBundle, CapturedValue, CoreError, NodeId, NodeValue, Protocol,
+    Provenance, ResetMode, ResultDocument, ResultNode, TraceRecordId,
 };
 use mlua::{
     AnyUserData, Error as LuaError, HookTriggers, Lua, MetaMethod, MultiValue, Result as LuaResult,
@@ -38,6 +38,15 @@ pub enum RuntimeError {
     Core(#[from] CoreError),
 }
 
+/// Result of live collection followed by decoding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaptureExecution {
+    /// Decoded result document.
+    pub document: ResultDocument,
+    /// Capture bundle to retain with the live trace.
+    pub capture: CaptureBundle,
+}
+
 /// Executes one analyser in a fresh Lua state with a fresh result document.
 ///
 /// # Errors
@@ -48,8 +57,117 @@ pub fn execute<H: CardHost, S: EventSink>(
     host: &mut H,
     events: &S,
 ) -> Result<ResultDocument, RuntimeError> {
+    let lua = prepare_lua(request, host.cancellation())?;
+    let source = read_source(request)?;
+    let document = document_handle(request);
+    let next_node = Rc::new(Cell::new(1_u64));
+    lua.scope(|scope| {
+        install_common_modules(&lua, scope, events, &document, &next_node, None)?;
+        let module = common_module(&lua)?;
+        module.set("card", card_module(&lua, scope, host)?)?;
+        lua.load(&source)
+            .set_name(request.analyser.path.to_string_lossy())
+            .exec()
+    })?;
+    finish_document(&document)
+}
+
+/// Collects analyser values and decodes them in the same fresh Lua state.
+///
+/// # Errors
+///
+/// Returns source, Lua, cancellation, host, capture, or document errors.
+pub fn execute_with_capture<H: CardHost, S: EventSink>(
+    request: &ExecutionRequest,
+    host: &mut H,
+    events: &S,
+    segment: usize,
+) -> Result<CaptureExecution, RuntimeError> {
+    let lua = prepare_lua(request, host.cancellation())?;
+    let source = read_source(request)?;
+    let document = document_handle(request);
+    let next_node = Rc::new(Cell::new(1_u64));
+    let provenance = decoder_provenance(request);
+    let mut capture = CaptureBundle::new(
+        request.analyser.id.clone(),
+        request.analyser.version.clone(),
+        request
+            .analyser
+            .capture_schema
+            .clone()
+            .ok_or_else(|| invalid("analyser has no capture schema"))?,
+        segment,
+    );
+    lua.scope(|scope| {
+        install_common_modules(&lua, scope, events, &document, &next_node, Some(provenance))?;
+        let module = common_module(&lua)?;
+        module.set("capture_execution", true)?;
+        module.set("card", card_module(&lua, scope, host)?)?;
+        lua.load(&source)
+            .set_name(request.analyser.path.to_string_lossy())
+            .exec()?;
+        let globals = lua.globals();
+        let collect: mlua::Function = globals
+            .get("collect")
+            .map_err(|_| LuaError::external(invalid("analyser does not define collect(cp)")))?;
+        let decode: mlua::Function = globals.get("decode").map_err(|_| {
+            LuaError::external(invalid("analyser does not define decode(cp, captured)"))
+        })?;
+        let collected: Table = collect.call(module.clone())?;
+        capture.values = captured_values(&collected)?;
+        let captured = captured_table(&lua, &capture.values)?;
+        module.set("captured", captured.clone())?;
+        module.set("card", Value::Nil)?;
+        decode.call::<()>((module, captured))?;
+        Ok(())
+    })?;
+    Ok(CaptureExecution {
+        document: finish_document(&document)?,
+        capture,
+    })
+}
+
+/// Decodes one compatible capture bundle without installing a card API.
+///
+/// # Errors
+///
+/// Returns source, Lua, cancellation, compatibility, or document errors.
+pub fn decode_capture<C: Cancellation, S: EventSink>(
+    request: &ExecutionRequest,
+    capture: &CaptureBundle,
+    cancellation: &C,
+    events: &S,
+) -> Result<ResultDocument, RuntimeError> {
+    validate_capture(request, capture)?;
+    let lua = prepare_lua(request, cancellation)?;
+    let source = read_source(request)?;
+    let document = document_handle(request);
+    let next_node = Rc::new(Cell::new(1_u64));
+    let provenance = decoder_provenance(request);
+    lua.scope(|scope| {
+        install_common_modules(&lua, scope, events, &document, &next_node, Some(provenance))?;
+        let module = common_module(&lua)?;
+        let captured = captured_table(&lua, &capture.values)?;
+        module.set("capture_execution", true)?;
+        module.set("captured", captured.clone())?;
+        lua.load(&source)
+            .set_name(request.analyser.path.to_string_lossy())
+            .exec()?;
+        let decode: mlua::Function = lua.globals().get("decode").map_err(|_| {
+            LuaError::external(invalid("analyser does not define decode(cp, captured)"))
+        })?;
+        decode.call::<()>((module, captured))?;
+        Ok(())
+    })?;
+    finish_document(&document)
+}
+
+fn prepare_lua<C: Cancellation>(
+    request: &ExecutionRequest,
+    cancellation: &C,
+) -> Result<Lua, RuntimeError> {
     let lua = Lua::new();
-    let cancellation = host.cancellation().clone();
+    let cancellation = cancellation.clone();
     lua.set_hook(
         HookTriggers::new().every_nth_instruction(1000),
         move |_lua, _debug| {
@@ -61,31 +179,111 @@ pub fn execute<H: CardHost, S: EventSink>(
         },
     )?;
     configure_module_path(&lua, request.analyser.resource_root())?;
-    let source = fs::read_to_string(&request.analyser.path).map_err(|source| RuntimeError::Io {
+    Ok(lua)
+}
+
+fn read_source(request: &ExecutionRequest) -> Result<String, RuntimeError> {
+    fs::read_to_string(&request.analyser.path).map_err(|source| RuntimeError::Io {
         path: request.analyser.path.clone(),
         source,
-    })?;
-    let document = Rc::new(RefCell::new(ResultDocument::new(
+    })
+}
+
+fn document_handle(request: &ExecutionRequest) -> Rc<RefCell<ResultDocument>> {
+    Rc::new(RefCell::new(ResultDocument::new(
         request.document_id.clone(),
         request.run_id.clone(),
-    )));
-    let next_node = Rc::new(Cell::new(1_u64));
-    lua.scope(|scope| {
-        let module = lua.create_table()?;
-        module.set("bytes", bytes_module(&lua)?)?;
-        module.set("nodes", nodes_module(&lua, &document, &next_node)?)?;
-        module.set("log", log_module(&lua, scope, events)?)?;
-        module.set("card", card_module(&lua, scope, host)?)?;
-        let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
-        loaded.set("cardpeek", module)?;
-        lua.load(&source)
-            .set_name(request.analyser.path.to_string_lossy())
-            .exec()
-    })?;
+    )))
+}
+
+fn finish_document(document: &Rc<RefCell<ResultDocument>>) -> Result<ResultDocument, RuntimeError> {
     let mut result = document.borrow().clone();
     result.publish();
     result.validate()?;
     Ok(result)
+}
+
+fn install_common_modules<'scope, 'env: 'scope, S: EventSink>(
+    lua: &Lua,
+    scope: &'scope mlua::Scope<'scope, 'env>,
+    events: &'env S,
+    document: &Rc<RefCell<ResultDocument>>,
+    next_node: &Rc<Cell<u64>>,
+    provenance: Option<(String, String)>,
+) -> LuaResult<()> {
+    let module = lua.create_table()?;
+    module.set("bytes", bytes_module(lua)?)?;
+    module.set("nodes", nodes_module(lua, document, next_node, provenance)?)?;
+    module.set("log", log_module(lua, scope, events)?)?;
+    let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
+    loaded.set("cardpeek", module)
+}
+
+fn common_module(lua: &Lua) -> LuaResult<Table> {
+    let package: Table = lua.globals().get("package")?;
+    let loaded: Table = package.get("loaded")?;
+    loaded.get("cardpeek")
+}
+
+fn decoder_provenance(request: &ExecutionRequest) -> (String, String) {
+    (
+        request.analyser.id.clone(),
+        request.analyser.version.clone(),
+    )
+}
+
+fn validate_capture(
+    request: &ExecutionRequest,
+    capture: &CaptureBundle,
+) -> Result<(), RuntimeError> {
+    let compatible = capture.analyser == request.analyser.id
+        && capture.analyser_version == request.analyser.version
+        && request.analyser.capture_schema.as_ref() == Some(&capture.capture_schema);
+    if !request.analyser.capabilities.offline_decoding || !compatible {
+        return Err(invalid(format!(
+            "capture bundle is incompatible with analyser {} version {} schema {}",
+            request.analyser.id,
+            request.analyser.version,
+            request.analyser.capture_schema.as_deref().unwrap_or("none")
+        )));
+    }
+    Ok(())
+}
+
+fn captured_values(collected: &Table) -> LuaResult<Vec<CapturedValue>> {
+    let mut values = Vec::new();
+    for entry in collected.sequence_values::<Table>() {
+        let entry = entry?;
+        let name: String = entry.get("name")?;
+        let bytes = entry
+            .get::<AnyUserData>("bytes")?
+            .borrow::<LuaBytes>()?
+            .0
+            .clone();
+        let source: String = entry.get("source")?;
+        values.push(CapturedValue {
+            name,
+            bytes,
+            source: TraceRecordId::new(source).map_err(LuaError::external)?,
+        });
+    }
+    Ok(values)
+}
+
+fn captured_table(lua: &Lua, values: &[CapturedValue]) -> LuaResult<Table> {
+    let captured = lua.create_table()?;
+    for value in values {
+        let entry = lua.create_table()?;
+        entry.set("name", value.name.clone())?;
+        entry.set("bytes", LuaBytes(value.bytes.clone()))?;
+        entry.set("source", value.source.as_str())?;
+        captured.push(entry)?;
+    }
+    Ok(captured)
+}
+
+fn invalid(message: impl Into<String>) -> RuntimeError {
+    RuntimeError::Core(CoreError::InvalidDocument(message.into()))
 }
 
 fn configure_module_path(lua: &Lua, root: &Path) -> LuaResult<()> {
@@ -205,10 +403,11 @@ fn nodes_module(
     lua: &Lua,
     document: &Rc<RefCell<ResultDocument>>,
     next_node: &Rc<Cell<u64>>,
+    provenance: Option<(String, String)>,
 ) -> LuaResult<Table> {
     let module = lua.create_table()?;
     add_root_accessors(lua, &module, document)?;
-    let methods = node_methods(lua, document, next_node)?;
+    let methods = node_methods(lua, document, next_node, provenance)?;
     let metatable = lua.create_table()?;
     metatable.set("__index", methods)?;
     lua.set_named_registry_value("cardpeek.node_metatable", metatable)?;
@@ -257,10 +456,11 @@ fn node_methods(
     lua: &Lua,
     document: &Rc<RefCell<ResultDocument>>,
     next_node: &Rc<Cell<u64>>,
+    provenance: Option<(String, String)>,
 ) -> LuaResult<Table> {
     let methods = lua.create_table()?;
     add_navigation_methods(lua, &methods, document, next_node)?;
-    add_attribute_methods(lua, &methods, document)?;
+    add_attribute_methods(lua, &methods, document, provenance)?;
     Ok(methods)
 }
 
@@ -350,6 +550,7 @@ fn add_attribute_methods(
     lua: &Lua,
     methods: &Table,
     document: &Rc<RefCell<ResultDocument>>,
+    provenance: Option<(String, String)>,
 ) -> LuaResult<()> {
     methods.set(
         "get",
@@ -389,6 +590,8 @@ fn add_attribute_methods(
                     node.provenance = Some(Provenance {
                         record: TraceRecordId::new(record).map_err(LuaError::external)?,
                         operation,
+                        analyser: provenance.as_ref().map(|value| value.0.clone()),
+                        analyser_version: provenance.as_ref().map(|value| value.1.clone()),
                     });
                     Ok(())
                 })
@@ -670,7 +873,7 @@ fn protocol_name(protocol: Protocol) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cardpeek_analyser::AnalyserMetadata;
+    use cardpeek_analyser::{AnalyserCapabilities, AnalyserMetadata};
     use cardpeek_core::{ApduResponse, Atr, DocumentId, RunId, StatusWord};
     use cardpeek_transport::SessionCapabilities;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -696,6 +899,10 @@ mod tests {
 
         fn atr(&mut self) -> Result<Atr, HostError> {
             Ok(Atr::new(vec![0x3b, 0]))
+        }
+
+        fn current_atr_record(&self) -> Option<TraceRecordId> {
+            Some(TraceRecordId::new("record-0001").unwrap())
         }
 
         fn reset(&mut self, _mode: ResetMode) -> Result<Atr, HostError> {
@@ -724,6 +931,8 @@ mod tests {
                     title: "Test".into(),
                     description: "Test".into(),
                     version: "1".into(),
+                    capabilities: AnalyserCapabilities::default(),
+                    capture_schema: None,
                     path,
                 },
                 run_id: RunId::new("run-test").unwrap(),
@@ -768,6 +977,46 @@ mod tests {
             value.provenance.as_ref().unwrap().record.as_str(),
             "record-0001"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn capture_collection_and_standalone_decode_match_without_card_access() {
+        let source = r#"
+            function collect(cp)
+                local atr, failure = cp.card.atr()
+                assert(failure == nil)
+                return {{ name = "atr", bytes = atr.bytes, source = atr.record }}
+            end
+            function decode(cp, captured)
+                assert(cp.card == nil)
+                local card = cp.nodes.root():append("card", "Synthetic card")
+                local atr = card:append("atr", "Answer to Reset")
+                atr:set("value", captured[1].bytes)
+                atr:set_provenance(captured[1].source, "Cold reset")
+                cp.log.info("Read " .. tostring(#captured[1].bytes) .. " ATR bytes")
+            end
+        "#;
+        let (mut live, root) = request(source);
+        live.analyser.id = "atr".into();
+        live.analyser.capabilities.offline_decoding = true;
+        live.analyser.capture_schema = Some("atr/v1".into());
+        let collected = execute_with_capture(&live, &mut Host, &(), 0).unwrap();
+        let offline = decode_capture(&live, &collected.capture, &(), &()).unwrap();
+        assert_eq!(collected.document, offline);
+        assert_eq!(collected.capture.values[0].name, "atr");
+        assert_eq!(
+            collected.document.roots[0].children[0]
+                .provenance
+                .as_ref()
+                .unwrap()
+                .analyser
+                .as_deref(),
+            Some("atr")
+        );
+        let mut incompatible = collected.capture.clone();
+        incompatible.capture_schema = "other/v1".into();
+        assert!(decode_capture(&live, &incompatible, &(), &()).is_err());
         let _ = fs::remove_dir_all(root);
     }
 

@@ -1,4 +1,4 @@
-# CardPeek-ng architecture
+# Cardpeek-ng architecture
 
 - [Overview and architectural rules](overview.md)
 - [Workspace and components](workspace.md)

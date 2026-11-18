@@ -6,7 +6,7 @@ use cardpeek_core::{
 };
 use cardpeek_pcsc::PcscSession;
 use cardpeek_replay::{ReplayError, ReplaySession};
-use cardpeek_transport::{CardSession, SessionCapabilities};
+use cardpeek_transport::{CardSession, CardStatus, SessionCapabilities};
 
 pub struct ReplayBackend {
     trace: TraceDocument,
@@ -77,14 +77,24 @@ impl SessionBackend for ReplayBackend {
 }
 
 pub struct DesktopBackend {
-    replay: ReplayBackend,
+    replay: std::sync::Mutex<Option<ReplayBackend>>,
     pcsc: Option<PcscBackend>,
 }
 
 impl DesktopBackend {
     #[must_use]
-    pub fn new(replay: ReplayBackend, pcsc: Option<PcscBackend>) -> Self {
-        Self { replay, pcsc }
+    pub fn new(replay: Option<ReplayBackend>, pcsc: Option<PcscBackend>) -> Self {
+        Self {
+            replay: std::sync::Mutex::new(replay),
+            pcsc,
+        }
+    }
+
+    pub fn set_replay(&self, replay: ReplayBackend) {
+        *self
+            .replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(replay);
     }
 }
 
@@ -141,6 +151,13 @@ impl CardSession for DesktopSession {
         }
     }
 
+    fn status(&mut self) -> Result<CardStatus, Self::Error> {
+        match self {
+            Self::Replay(session) => session.status().map_err(DesktopSessionError::new),
+            Self::Pcsc(session) => session.status().map_err(DesktopSessionError::new),
+        }
+    }
+
     fn disconnect(self) -> Result<(), Self::Error> {
         match self {
             Self::Replay(session) => session.disconnect().map_err(DesktopSessionError::new),
@@ -153,7 +170,13 @@ impl SessionBackend for DesktopBackend {
     type Session = DesktopSession;
 
     fn list_readers(&self) -> cardpeek_app::Result<Vec<ReaderInfo>> {
-        let mut readers = self.replay.list_readers()?;
+        let replay = self
+            .replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut readers = replay
+            .as_ref()
+            .map_or(Ok(Vec::new()), SessionBackend::list_readers)?;
         if let Some(pcsc) = &self.pcsc {
             readers.extend(pcsc.list_readers()?);
         }
@@ -162,12 +185,19 @@ impl SessionBackend for DesktopBackend {
 
     fn connect(&self, request: &ConnectRequest) -> cardpeek_app::Result<Self::Session> {
         match request.transport {
-            TransportKind::Replay => self.replay.connect(request).map(DesktopSession::Replay),
+            TransportKind::Replay => self
+                .replay
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .ok_or(cardpeek_app::AppError::NoActiveSession)?
+                .connect(request)
+                .map(DesktopSession::Replay),
             TransportKind::Pcsc => self
                 .pcsc
                 .as_ref()
                 .ok_or(cardpeek_app::AppError::NoActiveSession)?
-                .connect(request)
+                .connect_reader(request)
                 .map(DesktopSession::Pcsc),
         }
     }

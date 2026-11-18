@@ -23,7 +23,7 @@ fn discovers_analysers_without_executing_them() {
         .arg(analysers())
         .assert()
         .success()
-        .stdout("ID        VERSION  TITLE             DESCRIPTION\natr       1.0.0    ATR               Inspect the current Answer to Reset\ngsm-usim  1.0.0    GSM SIM and USIM  Inspect GSM SIM and USIM files without authentication or writes\n");
+        .stdout("ID        VERSION  TITLE             DESCRIPTION\natr       1.0.0    Card read         Read the current Answer to Reset\ngsm-usim  1.0.0    GSM SIM and USIM  Inspect GSM SIM and USIM files without authentication or writes\n");
 }
 
 #[test]

@@ -79,3 +79,24 @@ impl SessionBackend for PcscBackend {
         }))
     }
 }
+
+impl PcscBackend {
+    /// Connects to a reader without waiting for a card.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reader or its status is unavailable.
+    pub fn connect_reader(&self, request: &ConnectRequest) -> Result<PcscSession> {
+        if request.transport != TransportKind::Pcsc {
+            return Err(AppError::NoActiveSession);
+        }
+        self.context()?
+            .connect_reader(
+                &request.reader,
+                request
+                    .response_limit
+                    .unwrap_or(cardpeek_pcsc::DEFAULT_RESPONSE_LIMIT),
+            )
+            .map_err(transport_error)
+    }
+}

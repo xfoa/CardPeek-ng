@@ -6,7 +6,7 @@ use std::time::Duration;
 use cardpeek_analyser::DiscoveryError;
 use cardpeek_core::{
     ApduResponse, Atr, CoreError, DocumentId, Protocol, ReaderInfo, ResetMode, ResultDocument,
-    RunId, TraceRecordId, TransportKind,
+    RunId, TraceDocument, TraceRecordId, TransportKind,
 };
 use cardpeek_transport::SessionCapabilities;
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,9 @@ pub enum AppError {
     /// The command needs an active session.
     #[error("no active card session")]
     NoActiveSession,
+    /// Live collection needs a physically present card.
+    #[error("live collection requires an active PCSC session with a physically present card")]
+    CardNotPresent,
     /// A session operation or queue slot is unavailable.
     #[error("a session operation is already running")]
     OperationInProgress,
@@ -235,8 +238,14 @@ pub enum CommandKind {
     Transmit(Vec<u8>),
     /// Discover analysers without executing scripts.
     DiscoverAnalysers(PathBuf),
-    /// Start one analyser run.
+    /// Start one analyser run with legacy behavior.
     RunAnalyser(RunAnalyserRequest),
+    /// Collect and decode analyser values from the current physical card.
+    CollectAnalyser(RunAnalyserRequest),
+    /// Decode one retained capture bundle without card access.
+    DecodeAnalyser(DecodeAnalyserRequest),
+    /// Replay one selected trace segment without card access.
+    ReplayAnalyser(ReplayAnalyserRequest),
     /// Request cancellation of one operation.
     Cancel(OperationId),
     /// Answer one pending interaction.
@@ -258,6 +267,36 @@ pub struct RunAnalyserRequest {
     pub run_id: RunId,
     /// Stable identifier for the fresh result document.
     pub document_id: DocumentId,
+}
+
+/// Pure offline analyser decoding parameters.
+#[derive(Clone, Debug)]
+pub struct DecodeAnalyserRequest {
+    /// Discovered analyser identifier.
+    pub analyser: String,
+    /// Stable identifier for this run.
+    pub run_id: RunId,
+    /// Stable identifier for the fresh result document.
+    pub document_id: DocumentId,
+    /// Trace containing the selected capture bundle.
+    pub trace: TraceDocument,
+    /// Zero-based reset segment index.
+    pub segment: usize,
+}
+
+/// Segment-scoped offline replay parameters.
+#[derive(Clone, Debug)]
+pub struct ReplayAnalyserRequest {
+    /// Discovered analyser identifier.
+    pub analyser: String,
+    /// Stable identifier for this run.
+    pub run_id: RunId,
+    /// Stable identifier for the fresh result document.
+    pub document_id: DocumentId,
+    /// Source trace.
+    pub trace: TraceDocument,
+    /// Zero-based reset segment index.
+    pub segment: usize,
 }
 
 /// Correlates a response with one interaction request.
@@ -316,6 +355,12 @@ pub enum OperationKind {
     DiscoverAnalysers,
     /// Analyser execution.
     RunAnalyser,
+    /// Live collection and decoding.
+    CollectAnalyser,
+    /// Offline capture decoding.
+    DecodeAnalyser,
+    /// Offline segment replay.
+    ReplayAnalyser,
     /// Operation cancellation.
     Cancel,
     /// Interaction response.
@@ -547,6 +592,17 @@ pub enum EventKind {
         state: SessionState,
         /// Associated reader.
         reader: ReaderInfo,
+    },
+    /// Card presence or connection details changed.
+    CardStatusChanged {
+        /// Session operation identifier.
+        session: OperationId,
+        /// Whether a card is present and connected.
+        card_present: bool,
+        /// Current negotiated protocol.
+        protocol: Protocol,
+        /// Current Answer to Reset.
+        atr: Atr,
     },
     /// Exact APDU exchange completed.
     ApduExchanged {

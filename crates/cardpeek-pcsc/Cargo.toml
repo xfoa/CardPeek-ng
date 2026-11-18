@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-pcsc"
-description = "Native PC/SC transport for CardPeek-ng"
+description = "Native PC/SC transport for Cardpeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

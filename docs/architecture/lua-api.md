@@ -3,11 +3,15 @@
 ## Runtime and startup
 
 The runtime loads each analyser with `require("cardpeek")`.
-The module exposes the CardPeek-ng API through one namespace.
-It does not install CardPeek globals or emulate CardPeek Lua behaviour.
+The module exposes the Cardpeek-ng API through one namespace.
+It does not install Cardpeek globals or emulate Cardpeek Lua behaviour.
 
 Analyser discovery does not execute the analyser.
 Metadata headers contain `@id`, `@title`, `@description`, and `@version` in leading Lua line comments.
+Optional `@capabilities` values are `live`, `decode`, and `replay`.
+A decoder also declares `@capture-schema`.
+Discovery records these capabilities without executing Lua.
+Scripts without the new headers default to live collection and replay.
 The runtime provides explicit script and resource roots.
 Module loading and file access follow the trusted-script policy.
 The first release does not provide `dofile` compatibility behaviour.
@@ -16,6 +20,16 @@ The `cardpeek.card.atr()` and `cardpeek.card.reset()` calls return an ATR result
 The ATR result contains typed `bytes` and an optional source `record` identifier.
 `cardpeek.card.transmit()` returns response data, status components, and a description.
 Native failures use the separate error result.
+
+## Collection and decoding
+
+A live-only analyser uses the legacy top-level execution path.
+A migrated analyser defines `collect(cardpeek)` and `decode(cardpeek, captured)`.
+Collection can use `cardpeek.card` and returns captured values with native bytes and source record identifiers.
+The runtime stores those values in a capture bundle before decoding.
+Standalone decoding receives the selected bundle and exposes bytes, nodes, logs, and captured data.
+It does not install `cardpeek.card`.
+Live collection and offline decoding therefore share the same decoder without sharing card access.
 
 ## API areas
 

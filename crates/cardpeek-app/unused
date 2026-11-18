@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "records": [
+    {
+      "kind": "reset",
+      "id": "record-0001",
+      "mode": "cold",
+      "atr": {
+        "width": 8,
+        "elements": [
+          59,
+          0
+        ]
+      }
+    }
+  ]
+}

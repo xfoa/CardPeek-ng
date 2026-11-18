@@ -7,16 +7,16 @@ use std::time::Duration;
 
 use cardpeek_app::{
     AnswerInteraction, AppError, Application, CancellationToken, CommandId, CommandKind,
-    ConnectRequest, EngineConfig, EventKind, ExportDocument, ExportTrace, InteractionId,
-    InteractionKind, InteractionResponse, LogLevel, OperationId, OperationStatus, SessionBackend,
-    TraceExportMode, transport_error,
+    ConnectRequest, DecodeAnalyserRequest, EngineConfig, EventKind, ExportDocument, ExportTrace,
+    InteractionId, InteractionKind, InteractionResponse, LogLevel, OperationId, OperationStatus,
+    ReplayAnalyserRequest, RunAnalyserRequest, SessionBackend, TraceExportMode, transport_error,
 };
 use cardpeek_core::{
     ApduResponse, Atr, DocumentId, NodeId, ResetMode, ResultDocument, ResultNode, RunId,
     TraceDocument,
 };
 use cardpeek_replay::ReplaySession;
-use cardpeek_transport::{CardSession, SessionCapabilities};
+use cardpeek_transport::{CardSession, CardStatus, SessionCapabilities};
 
 #[derive(Debug)]
 struct ReplayAdapter {
@@ -152,6 +152,89 @@ impl SessionBackend for BlockingBackend {
     }
 }
 
+struct DynamicSession {
+    present: Arc<Mutex<bool>>,
+    available: Arc<Mutex<bool>>,
+}
+
+impl CardSession for DynamicSession {
+    type Error = TestError;
+
+    fn protocol(&self) -> cardpeek_core::Protocol {
+        cardpeek_core::Protocol::Other
+    }
+
+    fn capabilities(&self) -> SessionCapabilities {
+        SessionCapabilities {
+            extended_apdus: true,
+        }
+    }
+
+    fn atr(&self) -> Result<Atr, Self::Error> {
+        Ok(Atr::new(if *self.present.lock().unwrap() {
+            vec![0x3b, 0]
+        } else {
+            Vec::new()
+        }))
+    }
+
+    fn status(&mut self) -> Result<CardStatus, Self::Error> {
+        if !*self.available.lock().unwrap() {
+            return Err(TestError);
+        }
+        let card_present = *self.present.lock().unwrap();
+        Ok(CardStatus {
+            card_present,
+            protocol: if card_present {
+                cardpeek_core::Protocol::T1
+            } else {
+                cardpeek_core::Protocol::Other
+            },
+            atr: Atr::new(if card_present {
+                vec![0x3b, 0]
+            } else {
+                Vec::new()
+            }),
+        })
+    }
+
+    fn reset(&mut self, _mode: ResetMode) -> Result<Atr, Self::Error> {
+        self.atr()
+    }
+
+    fn transmit(&mut self, _command: &[u8]) -> Result<ApduResponse, Self::Error> {
+        Err(TestError)
+    }
+
+    fn disconnect(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+struct DynamicBackend {
+    present: Arc<Mutex<bool>>,
+    available: Arc<Mutex<bool>>,
+    access: Option<Arc<Mutex<usize>>>,
+}
+
+impl SessionBackend for DynamicBackend {
+    type Session = DynamicSession;
+
+    fn list_readers(&self) -> cardpeek_app::Result<Vec<cardpeek_core::ReaderInfo>> {
+        Ok(Vec::new())
+    }
+
+    fn connect(&self, _request: &ConnectRequest) -> cardpeek_app::Result<Self::Session> {
+        if let Some(access) = &self.access {
+            *access.lock().unwrap() += 1;
+        }
+        Ok(DynamicSession {
+            present: self.present.clone(),
+            available: self.available.clone(),
+        })
+    }
+}
+
 struct Backend {
     trace: TraceDocument,
 }
@@ -200,7 +283,7 @@ fn connect(app: &Application<Backend>) -> (OperationId, cardpeek_app::EventSubsc
 }
 
 fn wait_for_terminal(events: &cardpeek_app::EventSubscription, operation: &OperationId) {
-    for _ in 0..64 {
+    for _ in 0..512 {
         let event = events
             .recv_timeout(Duration::from_secs(2))
             .expect("terminal event");
@@ -316,7 +399,8 @@ fn replay_session_serialises_commands_and_exports_trace() {
         );
     }
     assert_eq!(app.session().unwrap().id, session);
-    assert!(app.trace_snapshot(&session).is_none());
+    let active = app.trace_snapshot(&session).unwrap();
+    assert_eq!(active.records.len(), 9);
     let disconnect = app.submit(CommandKind::Disconnect).unwrap();
     wait_for_terminal(&events, &disconnect);
     let trace = app.trace_snapshot(&session).unwrap();
@@ -532,6 +616,79 @@ fn cancellation_interrupts_native_wait_and_cleans_up() {
 }
 
 #[test]
+fn reader_session_tracks_card_insertion_and_removal() {
+    let present = Arc::new(Mutex::new(false));
+    let app = Application::with_defaults(DynamicBackend {
+        present: present.clone(),
+        available: Arc::new(Mutex::new(true)),
+        access: None,
+    });
+    let events = app.subscribe();
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            "Dynamic reader",
+            cardpeek_core::TransportKind::Pcsc,
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &session);
+    assert_eq!(app.session().unwrap().reader.card_present, Some(false));
+    *present.lock().unwrap() = true;
+    let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        event.kind,
+        EventKind::CardStatusChanged {
+            card_present: true,
+            ..
+        }
+    ));
+    assert_eq!(app.session().unwrap().reader.card_present, Some(true));
+    *present.lock().unwrap() = false;
+    let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        event.kind,
+        EventKind::CardStatusChanged {
+            card_present: false,
+            ..
+        }
+    ));
+    let disconnect = app.submit(CommandKind::Disconnect).unwrap();
+    wait_for_terminal(&events, &disconnect);
+    assert_eq!(app.trace_snapshot(&session).unwrap().records.len(), 1);
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn reader_removal_error_disconnects_the_active_session() {
+    let available = Arc::new(Mutex::new(true));
+    let app = Application::with_defaults(DynamicBackend {
+        present: Arc::new(Mutex::new(false)),
+        available: available.clone(),
+        access: None,
+    });
+    let events = app.subscribe();
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            "Dynamic reader",
+            cardpeek_core::TransportKind::Pcsc,
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &session);
+    *available.lock().unwrap() = false;
+    let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(event.kind, EventKind::OperationFailed { .. }));
+    let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        event.kind,
+        EventKind::SessionStateChanged {
+            state: cardpeek_app::SessionState::Disconnected,
+            ..
+        }
+    ));
+    assert!(app.session().is_none());
+    app.shutdown().unwrap();
+}
+
+#[test]
 fn sanitised_trace_export_removes_card_values() {
     let app = application(EngineConfig::default());
     let (session, events) = connect(&app);
@@ -564,24 +721,297 @@ fn sanitised_trace_export_removes_card_values() {
 }
 
 #[test]
-fn invalid_apdu_and_unavailable_trace_are_structured_failures() {
+fn unavailable_trace_is_a_structured_failure() {
     let app = application(EngineConfig::default());
-    let (session, events) = connect(&app);
+    assert!(matches!(
+        app.export_trace_now(&ExportTrace {
+            session: OperationId::new("unknown"),
+            mode: TraceExportMode::Raw,
+            destination: PathBuf::from("unused"),
+        }),
+        Err(AppError::TraceUnavailable)
+    ));
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn invalid_apdu_is_a_structured_failure() {
+    let app = application(EngineConfig::default());
+    let (_session, events) = connect(&app);
     let operation = app.submit(CommandKind::Transmit(vec![0xff])).unwrap();
     wait_for_terminal(&events, &operation);
     assert_eq!(
         app.operation(&operation).unwrap().status,
         OperationStatus::Failed
     );
-    assert!(matches!(
-        app.export_trace_now(&ExportTrace {
-            session,
-            mode: TraceExportMode::Raw,
-            destination: PathBuf::from("unused"),
-        }),
-        Err(AppError::TraceUnavailable)
-    ));
     let disconnect = app.submit(CommandKind::Disconnect).unwrap();
     wait_for_terminal(&events, &disconnect);
+    app.shutdown().unwrap();
+}
+
+fn discover_atr<B: SessionBackend>(app: &Application<B>, events: &cardpeek_app::EventSubscription) {
+    let operation = app
+        .submit(CommandKind::DiscoverAnalysers(PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../analysers"
+        ))))
+        .unwrap();
+    wait_for_terminal(events, &operation);
+    assert_eq!(
+        app.operation(&operation).unwrap().status,
+        OperationStatus::Completed
+    );
+}
+
+fn run_request(analyser: &str, name: &str) -> RunAnalyserRequest {
+    RunAnalyserRequest {
+        analyser: analyser.into(),
+        run_id: RunId::new(format!("run-{name}")).unwrap(),
+        document_id: DocumentId::new(format!("doc-{name}")).unwrap(),
+    }
+}
+
+#[test]
+fn live_atr_collection_matches_offline_decode_without_backend_access() {
+    let access = Arc::new(Mutex::new(0));
+    let app = Application::with_defaults(DynamicBackend {
+        present: Arc::new(Mutex::new(true)),
+        available: Arc::new(Mutex::new(true)),
+        access: Some(access.clone()),
+    });
+    let events = app.subscribe();
+    discover_atr(&app, &events);
+    let disconnected = app
+        .submit(CommandKind::CollectAnalyser(run_request(
+            "atr",
+            "disconnected",
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &disconnected);
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            "Dynamic reader",
+            cardpeek_core::TransportKind::Pcsc,
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &session);
+    let live_request = run_request("atr", "live");
+    let live = app
+        .submit(CommandKind::CollectAnalyser(live_request.clone()))
+        .unwrap();
+    wait_for_terminal(&events, &live);
+    assert_eq!(
+        app.operation(&live).unwrap().status,
+        OperationStatus::Completed
+    );
+    let trace = app.active_trace_snapshot().unwrap().as_ref().clone();
+    assert_eq!(trace.schema_version, 2);
+    assert_eq!(trace.captures.len(), 1);
+    assert_eq!(trace.captures[0].values[0].source.as_str(), "record-0001");
+    let decode = app
+        .submit(CommandKind::DecodeAnalyser(DecodeAnalyserRequest {
+            analyser: "atr".into(),
+            run_id: RunId::new("run-offline").unwrap(),
+            document_id: DocumentId::new("doc-offline").unwrap(),
+            trace: trace.clone(),
+            segment: 0,
+        }))
+        .unwrap();
+    wait_for_terminal(&events, &decode);
+    assert_eq!(
+        app.operation(&decode).unwrap().status,
+        OperationStatus::Completed
+    );
+    assert_eq!(
+        app.document_snapshot(&live_request.run_id)
+            .unwrap()
+            .document
+            .roots,
+        app.document_snapshot(&RunId::new("run-offline").unwrap())
+            .unwrap()
+            .document
+            .roots
+    );
+    assert_eq!(*access.lock().unwrap(), 1);
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn live_only_analyser_uses_legacy_collection_without_a_capture_bundle() {
+    let trace = TraceDocument::load(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/traces/gsm-usim-synthetic-001.json"
+    ))
+    .unwrap();
+    let app = Application::with_defaults(Backend { trace });
+    let events = app.subscribe();
+    discover_atr(&app, &events);
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            "Synthetic PC/SC reader",
+            cardpeek_core::TransportKind::Pcsc,
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &session);
+    let request = run_request("gsm-usim", "live-only");
+    let operation = app
+        .submit(CommandKind::CollectAnalyser(request.clone()))
+        .unwrap();
+    wait_for_terminal(&events, &operation);
+    assert_eq!(
+        app.operation(&operation).unwrap().status,
+        OperationStatus::Completed
+    );
+    assert!(app.document_snapshot(&request.run_id).is_some());
+    assert_eq!(app.active_trace_snapshot().unwrap().captures.len(), 0);
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn offline_decode_rejects_missing_and_incompatible_bundles() {
+    let app = Application::with_defaults(DynamicBackend {
+        present: Arc::new(Mutex::new(false)),
+        available: Arc::new(Mutex::new(true)),
+        access: None,
+    });
+    let events = app.subscribe();
+    discover_atr(&app, &events);
+    let mut trace = TraceDocument::new();
+    let reset = trace.record_reset(ResetMode::Cold, Atr::new(vec![0x3b, 0]));
+    let missing = app
+        .submit(CommandKind::DecodeAnalyser(DecodeAnalyserRequest {
+            analyser: "atr".into(),
+            run_id: RunId::new("run-missing").unwrap(),
+            document_id: DocumentId::new("doc-missing").unwrap(),
+            trace: trace.clone(),
+            segment: 0,
+        }))
+        .unwrap();
+    wait_for_terminal(&events, &missing);
+    assert_eq!(
+        app.operation(&missing).unwrap().status,
+        OperationStatus::Failed
+    );
+    trace.captures.push(cardpeek_core::CaptureBundle {
+        analyser: "atr".into(),
+        analyser_version: "old".into(),
+        capture_schema: "atr/v1".into(),
+        segment: 0,
+        values: vec![cardpeek_core::CapturedValue {
+            name: "atr".into(),
+            bytes: cardpeek_core::ByteString::from_bytes(vec![0x3b, 0]),
+            source: reset,
+        }],
+    });
+    let incompatible = app
+        .submit(CommandKind::DecodeAnalyser(DecodeAnalyserRequest {
+            analyser: "atr".into(),
+            run_id: RunId::new("run-incompatible").unwrap(),
+            document_id: DocumentId::new("doc-incompatible").unwrap(),
+            trace,
+            segment: 0,
+        }))
+        .unwrap();
+    wait_for_terminal(&events, &incompatible);
+    assert_eq!(
+        app.operation(&incompatible).unwrap().status,
+        OperationStatus::Failed
+    );
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn offline_replay_is_segment_bounded_and_reports_missing_commands() {
+    let access = Arc::new(Mutex::new(0));
+    let app = Application::with_defaults(DynamicBackend {
+        present: Arc::new(Mutex::new(false)),
+        available: Arc::new(Mutex::new(true)),
+        access: Some(access.clone()),
+    });
+    let events = app.subscribe();
+    discover_atr(&app, &events);
+    let mut trace = TraceDocument::new();
+    trace.record_reset(ResetMode::Cold, Atr::new(vec![0x3b, 0]));
+    trace.record_reset(ResetMode::Warm, Atr::new(vec![0x3b, 1]));
+    let replay = app
+        .submit(CommandKind::ReplayAnalyser(ReplayAnalyserRequest {
+            analyser: "atr".into(),
+            run_id: RunId::new("run-replay").unwrap(),
+            document_id: DocumentId::new("doc-replay").unwrap(),
+            trace,
+            segment: 1,
+        }))
+        .unwrap();
+    wait_for_terminal(&events, &replay);
+    assert_eq!(
+        app.operation(&replay).unwrap().status,
+        OperationStatus::Completed
+    );
+    let value = app
+        .document_snapshot(&RunId::new("run-replay").unwrap())
+        .unwrap()
+        .document
+        .roots[0]
+        .children[0]
+        .clone();
+    assert_eq!(value.provenance.unwrap().record.as_str(), "record-0002");
+    assert_eq!(*access.lock().unwrap(), 0);
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn offline_replay_missing_command_identifies_analyser_segment_and_command() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "cardpeek-replay-test-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("missing.lua"),
+        "-- @id missing\n-- @title Missing\n-- @description Missing command\n-- @version 1\nlocal cp = require('cardpeek')\nlocal response, failure = cp.card.transmit(cp.bytes.from_hex('00C00000'))\nassert(failure == nil, failure and failure.message)\n",
+    )
+    .unwrap();
+    let app = Application::with_defaults(DynamicBackend {
+        present: Arc::new(Mutex::new(false)),
+        available: Arc::new(Mutex::new(true)),
+        access: None,
+    });
+    let events = app.subscribe();
+    let discovery = app
+        .submit(CommandKind::DiscoverAnalysers(root.clone()))
+        .unwrap();
+    wait_for_terminal(&events, &discovery);
+    let mut trace = TraceDocument::new();
+    trace.record_reset(ResetMode::Cold, Atr::new(vec![0x3b, 0]));
+    trace.record_reset(ResetMode::Warm, Atr::new(vec![0x3b, 1]));
+    let replay = app
+        .submit(CommandKind::ReplayAnalyser(ReplayAnalyserRequest {
+            analyser: "missing".into(),
+            run_id: RunId::new("run-missing-command").unwrap(),
+            document_id: DocumentId::new("doc-missing-command").unwrap(),
+            trace,
+            segment: 1,
+        }))
+        .unwrap();
+    let mut failure = None;
+    for _ in 0..16 {
+        let event = events.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(!matches!(event.kind, EventKind::SessionStateChanged { .. }));
+        if event.operation == replay
+            && let EventKind::OperationFailed { error, .. } = event.kind
+        {
+            failure = Some(error);
+            break;
+        }
+    }
+    let failure = failure.unwrap();
+    assert!(failure.contains("analyser missing"));
+    assert!(failure.contains("segment 1"));
+    assert!(failure.contains("00C00000"));
+    let _ = std::fs::remove_dir_all(root);
     app.shutdown().unwrap();
 }

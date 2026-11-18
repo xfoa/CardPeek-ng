@@ -12,6 +12,27 @@ use cardpeek_core::{ApduResponse, Atr, CoreError, DocumentId, Protocol, ResetMod
 use cardpeek_transport::SessionCapabilities;
 use thiserror::Error;
 
+/// Static execution capabilities declared by an analyser.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnalyserCapabilities {
+    /// Supports analyser-controlled live card collection.
+    pub live_collection: bool,
+    /// Supports pure offline decoding of capture bundles.
+    pub offline_decoding: bool,
+    /// Supports execution against recorded exchanges.
+    pub replay: bool,
+}
+
+impl Default for AnalyserCapabilities {
+    fn default() -> Self {
+        Self {
+            live_collection: true,
+            offline_decoding: false,
+            replay: true,
+        }
+    }
+}
+
 /// Static metadata read from an analyser comment header.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnalyserMetadata {
@@ -23,6 +44,10 @@ pub struct AnalyserMetadata {
     pub description: String,
     /// Analyser-provided version.
     pub version: String,
+    /// Supported execution modes.
+    pub capabilities: AnalyserCapabilities,
+    /// Capture schema required by the decoder.
+    pub capture_schema: Option<String>,
     /// Lua entry point.
     pub path: PathBuf,
 }
@@ -130,7 +155,10 @@ fn parse_metadata(path: &Path, source: &str) -> Result<AnalyserMetadata, Discove
             );
         };
         let name = name.trim();
-        if !matches!(name, "id" | "title" | "description" | "version") {
+        if !matches!(
+            name,
+            "id" | "title" | "description" | "version" | "capabilities" | "capture-schema"
+        ) {
             continue;
         }
         let value = value.trim();
@@ -150,11 +178,38 @@ fn parse_metadata(path: &Path, source: &str) -> Result<AnalyserMetadata, Discove
                 message: format!("required metadata field {name} is missing"),
             })
     };
+    let mut capabilities = AnalyserCapabilities::default();
+    if let Some(declared) = fields.get("capabilities") {
+        capabilities = AnalyserCapabilities {
+            live_collection: false,
+            offline_decoding: false,
+            replay: false,
+        };
+        for capability in declared.split(',').map(str::trim) {
+            match capability {
+                "live" => capabilities.live_collection = true,
+                "decode" => capabilities.offline_decoding = true,
+                "replay" => capabilities.replay = true,
+                _ => {
+                    return metadata_error(
+                        path,
+                        format!("unsupported analyser capability {capability}"),
+                    );
+                }
+            }
+        }
+    }
+    let capture_schema = fields.get("capture-schema").cloned();
+    if capabilities.offline_decoding && capture_schema.is_none() {
+        return metadata_error(path, "offline decoding requires @capture-schema".into());
+    }
     Ok(AnalyserMetadata {
         id: required("id")?,
         title: required("title")?,
         description: required("description")?,
         version: required("version")?,
+        capabilities,
+        capture_schema,
         path: path.to_path_buf(),
     })
 }
@@ -296,6 +351,25 @@ mod tests {
         assert_eq!(metadata.id, "atr");
         assert_eq!(metadata.title, "ATR");
         assert_eq!(metadata.version, "1.0.0");
+        assert_eq!(metadata.capabilities, AnalyserCapabilities::default());
+        assert_eq!(metadata.capture_schema, None);
+    }
+
+    #[test]
+    fn parses_and_validates_execution_capabilities() {
+        let metadata = parse_metadata(
+            Path::new("atr.lua"),
+            "-- @id atr\n-- @title ATR\n-- @description Native ATR\n-- @version 1\n-- @capabilities live, decode, replay\n-- @capture-schema atr/v1\n",
+        )
+        .unwrap();
+        assert!(metadata.capabilities.live_collection);
+        assert!(metadata.capabilities.offline_decoding);
+        assert!(metadata.capabilities.replay);
+        assert_eq!(metadata.capture_schema.as_deref(), Some("atr/v1"));
+        assert!(parse_metadata(
+            Path::new("bad.lua"),
+            "-- @id bad\n-- @title Bad\n-- @description Bad\n-- @version 1\n-- @capabilities decode\n",
+        ).is_err());
     }
 
     #[test]

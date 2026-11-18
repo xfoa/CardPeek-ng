@@ -52,11 +52,11 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_schema_version() {
-        let error = TraceDocument::from_json(r#"{"schema_version":2,"records":[]}"#).unwrap_err();
+        let error = TraceDocument::from_json(r#"{"schema_version":3,"records":[]}"#).unwrap_err();
         assert!(
             error
                 .to_string()
-                .contains("unsupported trace schema version 2")
+                .contains("unsupported trace schema version 3")
         );
     }
 

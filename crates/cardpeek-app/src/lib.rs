@@ -22,7 +22,7 @@ pub use sync::{CancellationHandle, CancellationToken, SubmitError};
 use sync::{CommandQueue, EventQueue, InteractionSlot, lock_unpoisoned};
 pub use types::*;
 pub use worker::{AnalyserHost, SessionBackend};
-use worker::{SessionRuntime, WorkerCommand};
+use worker::{OfflineContext, SessionRuntime, WorkerCommand};
 
 /// Owns the command dispatcher and all active session workers.
 pub struct Application<B: SessionBackend> {
@@ -408,7 +408,8 @@ impl<B: SessionBackend> Dispatcher<B> {
             CommandKind::Disconnect
             | CommandKind::Reset(_)
             | CommandKind::Transmit(_)
-            | CommandKind::RunAnalyser(_) => {
+            | CommandKind::RunAnalyser(_)
+            | CommandKind::CollectAnalyser(_) => {
                 let handle = self.backend.cancellation_interrupt(&token).map_or_else(
                     || CancellationHandle::new(token.clone()),
                     |interrupt| CancellationHandle::with_interrupt(token.clone(), interrupt),
@@ -422,6 +423,9 @@ impl<B: SessionBackend> Dispatcher<B> {
                 if let Err(error) = self.shared.forward(worker_command) {
                     self.fail(&operation, &error);
                 }
+            }
+            CommandKind::DecodeAnalyser(_) | CommandKind::ReplayAnalyser(_) => {
+                self.offline(&operation, command.kind, token);
             }
             CommandKind::DiscoverAnalysers(root) => self.discover_analysers(&operation, &root),
             CommandKind::Cancel(target) => {
@@ -471,6 +475,20 @@ impl<B: SessionBackend> Dispatcher<B> {
                 self.complete(&operation);
             }
         }
+    }
+
+    fn offline(&self, operation: &OperationId, request: CommandKind, token: CancellationToken) {
+        let context = OfflineContext {
+            shared: self.shared.clone(),
+            subscribers: self.subscribers.clone(),
+            documents: self.documents.clone(),
+            analysers: self.analysers.clone(),
+            interactions: self.interactions.clone(),
+            sequence: self.sequence.clone(),
+            interaction_timeout: self.config.interaction_timeout,
+        };
+        let handle = SessionRuntime::<B>::spawn_offline(context, operation.clone(), request, token);
+        lock_unpoisoned(&self.workers).push(handle);
     }
 
     fn discover_analysers(&self, operation: &OperationId, root: &std::path::Path) {

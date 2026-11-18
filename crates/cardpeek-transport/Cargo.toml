@@ -1,6 +1,6 @@
 [package]
 name = "cardpeek-transport"
-description = "Blocking smart-card transport contracts for CardPeek-ng"
+description = "Blocking smart-card transport contracts for Cardpeek-ng"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
