@@ -8,6 +8,32 @@ You can inspect APDU exchanges, save them as JSON traces, and replay those trace
 Cardpeek-ng is inspired by [Cardpeek](https://github.com/l1l1/cardpeek), but uses its own analysers and file formats.
 It does not read Cardpeek Lua analysers, XML documents, or trace captures.
 
+## Screenshots
+
+### Reader
+
+Connect to a PC/SC reader and inspect the current card capture.
+
+![Reader workspace](resources/screenshots/reader.png)
+
+### Analysis
+
+Run an analyser and explore the decoded result document.
+
+![Analysis workspace](resources/screenshots/analyser.png)
+
+### Trace
+
+Inspect, search, and filter APDU exchanges in capture order.
+
+![Trace workspace](resources/screenshots/trace.png)
+
+### Library
+
+Manage the Lua analysers shared by the desktop application and CLI.
+
+![Analyser library](resources/screenshots/library.png)
+
 ## Install the prerequisites
 
 Install Rust 1.100 or newer and the PC/SC development files.
