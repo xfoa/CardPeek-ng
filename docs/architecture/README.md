@@ -1,5 +1,7 @@
 # Cardpeek-ng architecture
 
+For analyser authoring instructions, see [Write analyser scripts](../analysers.md).
+
 - [Overview and architectural rules](overview.md)
 - [Workspace and components](workspace.md)
 - [Application runtime](application-runtime.md)

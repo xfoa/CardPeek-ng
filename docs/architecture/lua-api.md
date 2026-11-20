@@ -1,5 +1,7 @@
 # Lua API contract
 
+For authoring instructions and examples, see [Write analyser scripts](../analysers.md).
+
 ## Runtime and startup
 
 The runtime loads each analyser with `require("cardpeek")`.

@@ -162,6 +162,7 @@ pub struct DesktopState {
     pub notifications: Vec<Notification>,
     pub run_counter: u64,
     pub screen: Screen,
+    pub help_mode: bool,
     pub apdu_command: String,
     pub show_export: bool,
     pub export_kind: ExportKind,
@@ -210,6 +211,7 @@ impl Default for DesktopState {
             notifications: Vec::new(),
             run_counter: 0,
             screen: Screen::Reader,
+            help_mode: false,
             apdu_command: String::new(),
             show_export: false,
             export_kind: ExportKind::Document,
@@ -373,6 +375,10 @@ impl DesktopState {
                         | cardpeek_app::OperationKind::Disconnect
                 )
             })
+    }
+
+    pub fn toggle_help_mode(&mut self) {
+        self.help_mode = !self.help_mode;
     }
 
     pub fn select_analysis_input(&mut self, input: AnalysisInput) {

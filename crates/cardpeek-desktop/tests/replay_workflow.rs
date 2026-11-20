@@ -539,6 +539,27 @@ fn workspaces_default_independently_and_trace_search_covers_exact_records() {
 }
 
 #[test]
+fn help_mode_toggles_and_survives_workspace_changes() {
+    let mut state = DesktopState::default();
+    assert!(!state.help_mode);
+
+    state.toggle_help_mode();
+    assert!(state.help_mode);
+    for screen in [
+        Screen::Analysis,
+        Screen::Trace,
+        Screen::Library,
+        Screen::Reader,
+    ] {
+        state.screen = screen;
+        assert!(state.help_mode);
+    }
+
+    state.toggle_help_mode();
+    assert!(!state.help_mode);
+}
+
+#[test]
 fn result_rows_preserve_order_expansion_and_search() {
     let document = ResultDocument::from_json(
         &std::fs::read_to_string(fixture("documents/gsm-usim-synthetic-001.json")).unwrap(),

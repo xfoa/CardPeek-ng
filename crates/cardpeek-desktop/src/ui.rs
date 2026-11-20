@@ -9,13 +9,15 @@ use cardpeek_app::{
 use cardpeek_core::{Protocol, ResultNode, RunId, TraceRecord, TransportKind};
 use gpui::{
     AnyElement, AppContext, Application, Bounds, ClipboardItem, Context, Div, Entity, FontWeight,
-    MouseButton, MouseDownEvent, Pixels, Point, Render, Rgba, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
-    deferred, div, prelude::*, px, rgb, size, uniform_list,
+    Global, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, Pixels, Point, Render,
+    Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Task, TitlebarOptions,
+    Window, WindowBounds, WindowOptions, anchored, canvas, deferred, div, fill, point, prelude::*,
+    px, rgb, size, uniform_list,
 };
 
 use crate::DesktopBackend;
 use crate::controller::Controller;
+use crate::help::{self, HelpEntry};
 use crate::input::{TextField, TextFieldEvent, bind_keys};
 use crate::preferences::Preferences;
 use crate::state::{
@@ -165,6 +167,68 @@ struct PanelResizeDrag;
 struct ContextMenu {
     position: Point<Pixels>,
     text: String,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ActiveHelpTooltip {
+    entry: Option<HelpEntry>,
+    position: Point<Pixels>,
+}
+
+impl Global for ActiveHelpTooltip {}
+
+trait HelpTarget: StatefulInteractiveElement + Styled + ParentElement + Sized {
+    fn help_target(self, entry: HelpEntry) -> Self {
+        self.relative().child(help_indicator(entry))
+    }
+}
+
+impl<T: StatefulInteractiveElement + Styled + ParentElement + Sized> HelpTarget for T {}
+
+fn help_indicator(entry: HelpEntry) -> impl IntoElement {
+    canvas(
+        |bounds, _, _| bounds,
+        move |bounds, listener_bounds, window, _| {
+            window.on_mouse_event(move |event: &MouseMoveEvent, _, window, cx| {
+                let active = cx.default_global::<ActiveHelpTooltip>();
+                let next = if listener_bounds.contains(&event.position) {
+                    ActiveHelpTooltip {
+                        entry: Some(entry),
+                        position: event.position,
+                    }
+                } else if active.entry == Some(entry) {
+                    ActiveHelpTooltip::default()
+                } else {
+                    *active
+                };
+                if next.entry != active.entry || next.position != active.position {
+                    *active = next;
+                    window.refresh();
+                }
+            });
+            window.on_mouse_event(move |_: &MouseExitEvent, _, window, cx| {
+                let active = cx.default_global::<ActiveHelpTooltip>();
+                if active.entry == Some(entry) {
+                    active.entry = None;
+                    window.refresh();
+                }
+            });
+            let mut x = bounds.origin.x;
+            while x < bounds.right() {
+                let width = px(4.).min(bounds.right() - x);
+                window.paint_quad(fill(
+                    Bounds {
+                        origin: point(x, bounds.bottom() - px(1.)),
+                        size: size(width, px(1.)),
+                    },
+                    GREEN,
+                ));
+                x += px(8.);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -454,7 +518,14 @@ impl App {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(badge("PHYSICAL READER", rgb(0xc0d5d2), rgb(0x294347)))
+                    .child(help_badge(
+                        "help-physical-reader",
+                        "PHYSICAL READER",
+                        rgb(0xc0d5d2),
+                        rgb(0x294347),
+                        help::PCSC,
+                        self.state.help_mode,
+                    ))
                     .child(div().text_size(px(13.)).child(context))
                     .child(
                         div()
@@ -488,7 +559,7 @@ impl App {
             .bg(NAV)
             .border_t_1()
             .border_color(rgb(0x294347))
-            .pt_4()
+            .py_4()
             .flex()
             .flex_col()
             .items_center()
@@ -521,6 +592,51 @@ impl App {
                 "Library",
                 cx,
             ))
+            .child(div().flex_1())
+            .child(self.help_button(cx))
+    }
+
+    fn help_button(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+        let active = self.state.help_mode;
+        let tooltip = if active {
+            "Turn off help mode"
+        } else {
+            "Turn on help mode"
+        };
+        div()
+            .id("help-mode")
+            .w(px(58.))
+            .h(px(58.))
+            .rounded_lg()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .bg(if active { GREEN } else { NAV })
+            .text_color(if active { WHITE } else { rgb(0xa8bcba) })
+            .hover(move |style| {
+                if active {
+                    style.bg(GREEN_DARK)
+                } else {
+                    style.bg(rgb(0x294347))
+                }
+            })
+            .tooltip(move |_, cx| cx.new(|_| Tooltip(tooltip)).into())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|app, _, _, cx| {
+                    app.state.toggle_help_mode();
+                    cx.default_global::<ActiveHelpTooltip>().entry = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .text_size(px(24.))
+                    .font_family("Font Awesome 7 Free Solid")
+                    .font_weight(FontWeight::NORMAL)
+                    .child("\u{f059}"),
+            )
     }
 
     fn nav_button(
@@ -621,7 +737,13 @@ impl App {
             "No physical reader detected"
         };
         panel()
-            .child(panel_head("Reader connection", "PC/SC"))
+            .child(help_panel_head(
+                "help-pcsc",
+                "Reader connection",
+                "PC/SC",
+                help::PCSC,
+                self.state.help_mode,
+            ))
             .child(panel_body()
                 .child(field_label("Physical reader"))
                 .child(self.reader_list(cx))
@@ -635,7 +757,7 @@ impl App {
                     } else {
                         button("connect", "Connect", ButtonKind::Primary, selected.is_some(), cx.listener(Self::connect)).into_any_element()
                     })
-                    .child(button("reset", "Reset reader", ButtonKind::Normal, self.state.card_present() && !self.state.run_running(), cx.listener(Self::reset))))
+                    .child(button("reset", "Reset reader", ButtonKind::Normal, self.state.card_present() && !self.state.run_running(), cx.listener(Self::reset)).when(self.state.help_mode, |element| element.help_target(help::RESET))))
         )
     }
 
@@ -660,7 +782,13 @@ impl App {
             .as_ref()
             .map_or(0, |trace| trace.captures.len());
         panel()
-            .child(panel_head("Current capture", "SESSION TRACE"))
+            .child(help_panel_head(
+                "help-trace",
+                "Current capture",
+                "SESSION TRACE",
+                help::TRACE,
+                self.state.help_mode,
+            ))
             .child(
                 panel_body()
                     .flex()
@@ -668,7 +796,13 @@ impl App {
                     .gap_4()
                     .child(detail_row("Resets", &resets.to_string()))
                     .child(detail_row("Exchanges", &commands.to_string()))
-                    .child(detail_row("Capture bundles", &captures.to_string()))
+                    .child(help_detail_row(
+                        "help-capture-bundles",
+                        "Capture bundles",
+                        &captures.to_string(),
+                        help::CAPTURE_BUNDLE,
+                        self.state.help_mode,
+                    ))
                     .child(div().flex_1())
                     .child(button(
                         "export-capture",
@@ -774,13 +908,44 @@ impl App {
                                     .child("Current card")
                                     .child(note("Physical session details")),
                             )
-                            .child(badge(protocol, GREEN_DARK, GREEN_SOFT)),
+                            .child(help_badge(
+                                "help-protocol-badge",
+                                protocol,
+                                GREEN_DARK,
+                                GREEN_SOFT,
+                                help::PROTOCOL,
+                                self.state.help_mode,
+                            )),
                     )
-                    .child(detail_row("Connection", "Shared PC/SC session"))
-                    .child(detail_row("Protocol", protocol))
-                    .child(detail_row("ATR", &spaced_hex(session.atr.as_bytes())))
+                    .child(help_detail_row(
+                        "help-connection",
+                        "Connection",
+                        "Shared PC/SC session",
+                        help::PCSC,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-protocol",
+                        "Protocol",
+                        protocol,
+                        help::PROTOCOL,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-atr",
+                        "ATR",
+                        &spaced_hex(session.atr.as_bytes()),
+                        help::ATR,
+                        self.state.help_mode,
+                    ))
                     .child(detail_row("Reader", &session.reader.name))
-                    .child(detail_row("Session", &session.id.to_string())),
+                    .child(help_detail_row(
+                        "help-session",
+                        "Session",
+                        &session.id.to_string(),
+                        help::SESSION,
+                        self.state.help_mode,
+                    )),
             )
     }
 
@@ -849,13 +1014,33 @@ impl App {
                                     element.child(deferred(self.analyser_menu(cx)).priority(1))
                                 },
                             ))
-                            .child(button(
-                                "run",
-                                self.state.operation_label(),
-                                ButtonKind::Primary,
-                                self.state.can_run(),
-                                cx.listener(Self::run_analysis),
-                            ))
+                            .child(
+                                button(
+                                    "run",
+                                    self.state.operation_label(),
+                                    ButtonKind::Primary,
+                                    self.state.can_run(),
+                                    cx.listener(Self::run_analysis),
+                                )
+                                .when(
+                                    self.state.help_mode,
+                                    |element| {
+                                        let entry = match self.state.analysis_operation() {
+                                            Some(crate::state::AnalysisOperation::Collect) => {
+                                                help::LIVE
+                                            }
+                                            Some(crate::state::AnalysisOperation::Decode {
+                                                ..
+                                            }) => help::DECODE,
+                                            Some(crate::state::AnalysisOperation::Replay {
+                                                ..
+                                            }) => help::REPLAY,
+                                            None => help::ANALYSER,
+                                        };
+                                        element.help_target(entry)
+                                    },
+                                ),
+                            )
                             .child(button(
                                 "export-document",
                                 "Export result",
@@ -1031,6 +1216,9 @@ impl App {
                 .text_size(px(12.))
                 .child("\u{f078}"),
         )
+        .when(self.state.help_mode, |element| {
+            element.help_target(help::ANALYSER)
+        })
     }
 
     fn input_picker(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
@@ -1051,6 +1239,13 @@ impl App {
                 cx.notify();
             }),
         )
+        .when(self.state.help_mode, |element| {
+            let entry = match self.state.analysis_input {
+                AnalysisInput::LiveCard => help::LIVE,
+                AnalysisInput::TraceSegment { .. } => help::SEGMENT,
+            };
+            element.help_target(entry)
+        })
     }
 
     fn analyser_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
@@ -1223,11 +1418,12 @@ impl App {
                     .justify_between()
                     .border_b_1()
                     .border_color(BORDER)
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Decoded data"),
-                    )
+                    .child(help_text(
+                        "help-result-document",
+                        "Decoded data",
+                        help::RESULT_DOCUMENT,
+                        self.state.help_mode,
+                    ))
                     .child(
                         div()
                             .text_xs()
@@ -1463,6 +1659,7 @@ impl App {
             .into_any_element()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn node_details(&self) -> AnyElement {
         let Some(node) = self.state.selected() else {
             return panel()
@@ -1529,11 +1726,41 @@ impl App {
                     .px_4()
                     .pb_4()
                     .child(detail_row("Exact size", &size))
-                    .child(detail_row("Node ID", &node.id.to_string()))
-                    .child(detail_row("Value class", &node.class))
-                    .child(detail_row("MIME type", mime_type))
-                    .child(detail_row("Source record", &source))
-                    .child(detail_row("Document", &document)),
+                    .child(help_detail_row(
+                        "help-node-id",
+                        "Node ID",
+                        &node.id.to_string(),
+                        help::NODE_ID,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-value-class",
+                        "Value class",
+                        &node.class,
+                        help::VALUE_CLASS,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-mime-type",
+                        "MIME type",
+                        mime_type,
+                        help::MIME_TYPE,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-source-record",
+                        "Source record",
+                        &source,
+                        help::SOURCE_RECORD,
+                        self.state.help_mode,
+                    ))
+                    .child(help_detail_row(
+                        "help-document",
+                        "Document",
+                        &document,
+                        help::RESULT_DOCUMENT,
+                        self.state.help_mode,
+                    )),
             )
             .into_any_element()
     }
@@ -1608,11 +1835,21 @@ impl App {
     }
 
     fn run_exchanges(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        exchange_list("run-exchanges", &self.state.exchanges, cx)
+        exchange_list(
+            "run-exchanges",
+            &self.state.exchanges,
+            self.state.help_mode,
+            cx,
+        )
     }
 
     fn session_exchanges(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        exchange_list("session-exchanges", &self.state.session_exchanges, cx)
+        exchange_list(
+            "session-exchanges",
+            &self.state.session_exchanges,
+            self.state.help_mode,
+            cx,
+        )
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1647,24 +1884,39 @@ impl App {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(page_head(
-                        "Trace",
-                        "Inspect exact records in capture order without changing hardware.",
-                    ))
+                    .child(
+                        page_head(
+                            "Trace",
+                            "Inspect exact records in capture order without changing hardware.",
+                        )
+                        .when(self.state.help_mode, |element| {
+                            element.child(help_text(
+                                "help-trace-page",
+                                "What is a trace?",
+                                help::TRACE,
+                                true,
+                            ))
+                        }),
+                    )
                     .child(
                         div()
                             .flex()
                             .gap_2()
-                            .child(button(
-                                "load-current-session",
-                                "Load current session",
-                                ButtonKind::Normal,
-                                self.state.capture_trace.is_some(),
-                                cx.listener(|app, _, _, cx| {
-                                    app.state.open_capture_in_trace();
-                                    cx.notify();
+                            .child(
+                                button(
+                                    "load-current-session",
+                                    "Load current session",
+                                    ButtonKind::Normal,
+                                    self.state.capture_trace.is_some(),
+                                    cx.listener(|app, _, _, cx| {
+                                        app.state.open_capture_in_trace();
+                                        cx.notify();
+                                    }),
+                                )
+                                .when(self.state.help_mode, |element| {
+                                    element.help_target(help::LOAD_CURRENT_SESSION)
                                 }),
-                            ))
+                            )
                             .child(button(
                                 "open-trace",
                                 "Import trace",
@@ -1758,6 +2010,9 @@ impl App {
                 .text_size(px(12.))
                 .child("\u{f078}"),
         )
+        .when(self.state.help_mode, |element| {
+            element.help_target(help::SEGMENT)
+        })
     }
 
     fn trace_segment_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
@@ -1899,6 +2154,10 @@ impl App {
                 )
             }
         };
+        let summary_help = match record {
+            TraceRecord::Reset { .. } => help::RESET,
+            TraceRecord::Command { .. } => help::APDU,
+        };
         let height = if expanded && matches!(record, TraceRecord::Command { .. }) {
             116.
         } else if expanded {
@@ -1950,11 +2209,21 @@ impl App {
                     .child(div().w(px(16.)).child(if expanded { "v" } else { ">" }))
                     .child(
                         div()
+                            .id(SharedString::from(format!("help-trace-record-{id}")))
                             .flex_1()
                             .min_w_0()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(summary),
+                            .when(self.state.help_mode, |element| {
+                                element.help_target(summary_help).child(help_content(
+                                    div()
+                                        .w_full()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(summary.clone()),
+                                ))
+                            })
+                            .when(!self.state.help_mode, |element| element.child(summary)),
                     )
                     .child(div().text_color(MUTED).child(format!(
                         "Segment {} / {id} / {captures} captures",
@@ -2065,13 +2334,18 @@ impl App {
                     .flex()
                     .gap_2()
                     .child(div().flex_1().child(self.apdu.clone()))
-                    .child(button(
-                        "send-apdu",
-                        "Send APDU",
-                        ButtonKind::Primary,
-                        self.state.card_present() && !self.state.apdu_command.trim().is_empty(),
-                        cx.listener(Self::transmit),
-                    )),
+                    .child(
+                        button(
+                            "send-apdu",
+                            "Send APDU",
+                            ButtonKind::Primary,
+                            self.state.card_present() && !self.state.apdu_command.trim().is_empty(),
+                            cx.listener(Self::transmit),
+                        )
+                        .when(self.state.help_mode, |element| {
+                            element.help_target(help::APDU)
+                        }),
+                    ),
             )
             .child(note("Exact bytes only. No implicit retry or GET RESPONSE."))
     }
@@ -2105,6 +2379,7 @@ impl App {
                     .border_color(BORDER)
                     .child(
                         div()
+                            .id(SharedString::from(format!("help-lua-{id}")))
                             .size(px(42.))
                             .rounded_md()
                             .bg(GREEN_SOFT)
@@ -2113,7 +2388,17 @@ impl App {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child("Lua"),
+                            .when(self.state.help_mode, |element| {
+                                element.help_target(help::LUA).child(help_content(
+                                    div()
+                                        .size_full()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child("Lua"),
+                                ))
+                            })
+                            .when(!self.state.help_mode, |element| element.child("Lua")),
                     )
                     .child(
                         div()
@@ -2138,27 +2423,81 @@ impl App {
                                     .flex()
                                     .gap_1()
                                     .when(analyser.capabilities.live_collection, |element| {
-                                        element.child(badge("LIVE", GREEN_DARK, GREEN_SOFT))
+                                        element.child(help_badge(
+                                            SharedString::from(format!("help-live-badge-{id}")),
+                                            "LIVE",
+                                            GREEN_DARK,
+                                            GREEN_SOFT,
+                                            help::LIVE,
+                                            self.state.help_mode,
+                                        ))
                                     })
                                     .when(analyser.capabilities.offline_decoding, |element| {
-                                        element.child(badge("DECODE", GREEN_DARK, GREEN_SOFT))
+                                        element.child(help_badge(
+                                            SharedString::from(format!("help-decode-badge-{id}")),
+                                            "DECODE",
+                                            GREEN_DARK,
+                                            GREEN_SOFT,
+                                            help::DECODE,
+                                            self.state.help_mode,
+                                        ))
                                     })
                                     .when(analyser.capabilities.replay, |element| {
-                                        element.child(badge("REPLAY", AMBER, AMBER_SOFT))
+                                        element.child(help_badge(
+                                            SharedString::from(format!("help-replay-badge-{id}")),
+                                            "REPLAY",
+                                            AMBER,
+                                            AMBER_SOFT,
+                                            help::REPLAY,
+                                            self.state.help_mode,
+                                        ))
                                     })
-                                    .child(note(
-                                        analyser
-                                            .capture_schema
-                                            .as_deref()
-                                            .unwrap_or("No capture schema"),
-                                    )),
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "help-capture-schema-{id}"
+                                            )))
+                                            .text_xs()
+                                            .text_color(MUTED)
+                                            .when(self.state.help_mode, |element| {
+                                                element.help_target(help::CAPTURE_SCHEMA).child(
+                                                    help_content(
+                                                        div().child(
+                                                            analyser
+                                                                .capture_schema
+                                                                .clone()
+                                                                .unwrap_or_else(|| {
+                                                                    "No capture schema".into()
+                                                                }),
+                                                        ),
+                                                    ),
+                                                )
+                                            })
+                                            .when(!self.state.help_mode, |element| {
+                                                element.child(
+                                                    analyser.capture_schema.clone().unwrap_or_else(
+                                                        || "No capture schema".into(),
+                                                    ),
+                                                )
+                                            }),
+                                    ),
                             ),
                     )
                     .child(
                         div()
+                            .id(SharedString::from(format!("help-version-{id}")))
                             .text_sm()
                             .text_color(MUTED)
-                            .child(format!("v{}", analyser.version)),
+                            .when(self.state.help_mode, |element| {
+                                element
+                                    .help_target(help::ANALYSER_VERSION)
+                                    .child(help_content(
+                                        div().child(format!("v{}", analyser.version)),
+                                    ))
+                            })
+                            .when(!self.state.help_mode, |element| {
+                                element.child(format!("v{}", analyser.version))
+                            }),
                     )
                     .child(badge("INSTALLED", MUTED, CANVAS))
                     .child(button(
@@ -2206,7 +2545,7 @@ impl App {
                             .child(setting_section("Manual analyser selection", "Choose the analyser in Analysis. The application does not issue automatic detection probes."))
                             .child(setting_section("Library location", &self.state.analyser_directory))
                             .child(div().m_4().p_3().rounded_md().bg(AMBER_SOFT).child(div().font_weight(FontWeight::SEMIBOLD).text_color(AMBER).child("Only import scripts you trust")).child(note("Analysers can access local files and system facilities. They are not sandboxed.")))
-                            .child(div().m_4().p_3().rounded_md().bg(GREEN_SOFT).child(div().font_weight(FontWeight::SEMIBOLD).text_color(GREEN_DARK).child("This app sends no telemetry")).child(note("Card data and traces stay on this device unless you export them."))),
+                            .child(div().m_4().p_3().rounded_md().bg(GREEN_SOFT).child(help_text("help-telemetry", "This app sends no telemetry", help::TELEMETRY, self.state.help_mode)).child(note("Card data and traces stay on this device unless you export them."))),
                     ),
             )
     }
@@ -2649,6 +2988,10 @@ impl App {
         }
         history.child(messages)
     }
+
+    fn help_overlay(&self, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
+        render_help_overlay(self.state.help_mode, cx)
+    }
 }
 
 impl Render for App {
@@ -2687,6 +3030,7 @@ impl Render for App {
             )
             .children(self.dialogs(cx))
             .children(self.context_menu(cx))
+            .children(self.help_overlay(cx))
     }
 }
 
@@ -2740,6 +3084,98 @@ impl Render for Tooltip {
     }
 }
 
+fn render_help_overlay<V: 'static>(enabled: bool, cx: &mut Context<'_, V>) -> Option<AnyElement> {
+    if !enabled {
+        return None;
+    }
+    let active = *cx.try_global::<ActiveHelpTooltip>()?;
+    let entry = active.entry?;
+    Some(
+        deferred(
+            anchored()
+                .position(point(
+                    active.position.x + px(12.),
+                    active.position.y + px(16.),
+                ))
+                .snap_to_window_with_margin(px(8.))
+                .child(cx.new(|_| HelpTooltip(entry))),
+        )
+        .with_priority(3)
+        .into_any_element(),
+    )
+}
+
+struct HelpTooltip(HelpEntry);
+
+impl Render for HelpTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<'_, Self>) -> impl IntoElement {
+        div()
+            .id("immediate-help-tooltip")
+            .debug_selector(|| "immediate-help-tooltip".to_owned())
+            .w(px(340.))
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(GREEN)
+            .bg(NAV)
+            .text_color(WHITE)
+            .shadow_lg()
+            .child(
+                div()
+                    .mb_1()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.0.title),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .line_height(px(18.))
+                    .child(self.0.explanation),
+            )
+    }
+}
+
+fn help_text(
+    id: &'static str,
+    text: impl Into<SharedString>,
+    entry: HelpEntry,
+    enabled: bool,
+) -> AnyElement {
+    let text = text.into();
+    if enabled {
+        div()
+            .id(id)
+            .help_target(entry)
+            .child(help_content(div().child(text)))
+            .into_any_element()
+    } else {
+        div().child(text).into_any_element()
+    }
+}
+
+fn help_content(content: Div) -> Div {
+    content.size_full()
+}
+
+fn help_badge(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    foreground: Rgba,
+    background: Rgba,
+    entry: HelpEntry,
+    enabled: bool,
+) -> AnyElement {
+    if enabled {
+        badge(label, foreground, background)
+            .id(id)
+            .help_target(entry)
+            .into_any_element()
+    } else {
+        badge(label, foreground, background).into_any_element()
+    }
+}
+
 fn button(
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
@@ -2790,9 +3226,11 @@ fn button(
         .child(label.into())
 }
 
+#[allow(clippy::too_many_lines)]
 fn exchange_list(
     id: &'static str,
     exchanges: &[crate::state::Exchange],
+    help_mode: bool,
     cx: &mut Context<'_, App>,
 ) -> AnyElement {
     if exchanges.is_empty() {
@@ -2841,9 +3279,11 @@ fn exchange_list(
                                 .text_xs()
                                 .child(
                                     div()
+                                        .id(("exchange-tx", index))
                                         .w(px(22.))
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(GREEN_DARK)
+                                        .when(help_mode, |element| element.help_target(help::TX))
                                         .child("TX"),
                                 )
                                 .child(
@@ -2864,9 +3304,11 @@ fn exchange_list(
                                 .text_xs()
                                 .child(
                                     div()
+                                        .id(("exchange-rx", index))
                                         .w(px(22.))
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(MUTED)
+                                        .when(help_mode, |element| element.help_target(help::RX))
                                         .child("RX"),
                                 )
                                 .child(
@@ -2877,7 +3319,15 @@ fn exchange_list(
                                         .text_ellipsis()
                                         .child(exchange.data.clone()),
                                 )
-                                .child(div().text_color(MUTED).child(exchange.status.clone())),
+                                .child(
+                                    div()
+                                        .id(("exchange-status", index))
+                                        .text_color(MUTED)
+                                        .when(help_mode, |element| {
+                                            element.help_target(help::STATUS_WORD)
+                                        })
+                                        .child(exchange.status.clone()),
+                                ),
                         )
                 })
                 .collect::<Vec<_>>()
@@ -2896,8 +3346,21 @@ fn panel() -> Div {
         .overflow_hidden()
 }
 
-fn panel_head(title: &'static str, badge_label: &'static str) -> Div {
+fn panel_head(title: &'static str, badge_label: &'static str) -> Stateful<Div> {
+    panel_head_with_id(
+        SharedString::from(format!("panel-{title}")),
+        title,
+        badge_label,
+    )
+}
+
+fn panel_head_with_id(
+    id: impl Into<gpui::ElementId>,
+    title: &'static str,
+    badge_label: &'static str,
+) -> Stateful<Div> {
     div()
+        .id(id)
         .h(px(54.))
         .px_4()
         .flex()
@@ -2907,6 +3370,27 @@ fn panel_head(title: &'static str, badge_label: &'static str) -> Div {
         .border_color(BORDER)
         .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
         .child(badge(badge_label, MUTED, CANVAS))
+}
+
+fn help_panel_head(
+    id: &'static str,
+    title: &'static str,
+    badge_label: &'static str,
+    entry: HelpEntry,
+    enabled: bool,
+) -> Stateful<Div> {
+    panel_head_with_id(id, "", badge_label).child(
+        div()
+            .id(SharedString::from(format!("{id}-title")))
+            .when(enabled, |element| {
+                element.help_target(entry).child(help_content(
+                    div().font_weight(FontWeight::SEMIBOLD).child(title),
+                ))
+            })
+            .when(!enabled, |element| {
+                element.font_weight(FontWeight::SEMIBOLD).child(title)
+            }),
+    )
 }
 
 fn panel_body() -> Div {
@@ -2956,8 +3440,34 @@ fn note(text: &str) -> Div {
         .child(text.to_owned())
 }
 
-fn detail_row(label: &'static str, value: &str) -> Div {
+fn help_detail_row(
+    id: &'static str,
+    label: &'static str,
+    value: &str,
+    entry: HelpEntry,
+    enabled: bool,
+) -> Stateful<Div> {
+    let element = detail_row_with_id(id, label, value).relative();
+    if enabled {
+        element
+            .help_target(entry)
+            .child(help_content(div().absolute().inset_0()))
+    } else {
+        element
+    }
+}
+
+fn detail_row(label: &'static str, value: &str) -> Stateful<Div> {
+    detail_row_with_id(SharedString::from(format!("detail-{label}")), label, value)
+}
+
+fn detail_row_with_id(
+    id: impl Into<gpui::ElementId>,
+    label: &'static str,
+    value: &str,
+) -> Stateful<Div> {
     div()
+        .id(id)
         .py_3()
         .border_b_1()
         .border_color(BORDER)
@@ -3154,5 +3664,80 @@ fn progress_percent(progress: Option<&Progress>) -> u64 {
         }
         Some(Progress::Indeterminate) => 25,
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{Modifiers, TestAppContext, point, size};
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    struct HelpTargetView {
+        edge: bool,
+    }
+
+    impl Render for HelpTargetView {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .child(
+                    div()
+                        .id("test-help-target")
+                        .debug_selector(|| "test-help-target".to_owned())
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .when(self.edge, |element| element.right(px(10.)).bottom(px(10.)))
+                        .w(px(100.))
+                        .h(px(20.))
+                        .help_target(help::ATR)
+                        .child("ATR"),
+                )
+                .children(render_help_overlay(true, cx))
+        }
+    }
+
+    #[gpui::test]
+    fn help_tooltip_stays_inside_the_window(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|_| HelpTargetView { edge: true })
+            })
+            .unwrap()
+        });
+        let mut visual = gpui::VisualTestContext::from_window(window.into(), cx);
+        visual.simulate_resize(size(px(640.), px(480.)));
+        let target = visual.debug_bounds("test-help-target").unwrap();
+        visual.simulate_mouse_move(target.center(), None, Modifiers::none());
+        visual.read_global(|active: &ActiveHelpTooltip, _| {
+            assert_eq!(active.entry, Some(help::ATR));
+        });
+        let bounds = visual.debug_bounds("immediate-help-tooltip").unwrap();
+        assert!(bounds.left() >= px(8.));
+        assert!(bounds.top() >= px(8.));
+        assert!(bounds.right() <= px(632.));
+        assert!(bounds.bottom() <= px(472.));
+    }
+
+    #[gpui::test]
+    fn help_tooltip_clears_when_the_pointer_leaves(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|_| HelpTargetView { edge: false })
+            })
+            .unwrap()
+        });
+        let mut visual = gpui::VisualTestContext::from_window(window.into(), cx);
+        visual.simulate_resize(size(px(640.), px(480.)));
+        visual.simulate_mouse_move(point(px(10.), px(10.)), None, Modifiers::none());
+        visual.read_global(|active: &ActiveHelpTooltip, _| {
+            assert_eq!(active.entry, Some(help::ATR));
+        });
+        visual.simulate_mouse_move(point(px(300.), px(300.)), None, Modifiers::none());
+        visual.read_global(|active: &ActiveHelpTooltip, _| {
+            assert_eq!(active.entry, None);
+        });
     }
 }

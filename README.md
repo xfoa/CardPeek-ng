@@ -142,6 +142,8 @@ Review sanitised traces before sharing them; redaction does not remove every pos
 
 ### Manage analysers
 
+See [Write analyser scripts](docs/analysers.md) for the Lua API, examples, testing, and installation instructions.
+
 List the installed analysers and the library location:
 
 ```sh

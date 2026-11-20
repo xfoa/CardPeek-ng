@@ -2,6 +2,7 @@
 
 mod backend;
 pub mod controller;
+pub mod help;
 pub mod input;
 pub mod preferences;
 pub mod state;
