@@ -302,18 +302,13 @@ impl<B: SessionBackend> Controller<B> {
         }
     }
 
-    pub fn select_trace_file(&self) {
+    pub fn select_trace_file(&self, path: PathBuf) {
         let sender = self.sender.clone();
-        spawn_task("cardpeek-desktop-trace-picker", move || {
-            let path = rfd::FileDialog::new()
-                .add_filter("Cardpeek traces", &["json"])
-                .pick_file();
-            if let Some(path) = path {
-                let result = TraceDocument::load(&path)
-                    .map(|trace| (path, trace))
-                    .map_err(|error| error.to_string());
-                let _ = sender.send(UiMessage::TraceSelected(result));
-            }
+        spawn_task("cardpeek-desktop-trace-loader", move || {
+            let result = TraceDocument::load(&path)
+                .map(|trace| (path, trace))
+                .map_err(|error| error.to_string());
+            let _ = sender.send(UiMessage::TraceSelected(result));
         });
     }
 
@@ -408,28 +403,15 @@ impl<B: SessionBackend> Controller<B> {
         state.interaction_operation = None;
     }
 
-    pub fn select_export_destination(&self) {
-        self.select_file(FileRequest::Export);
-    }
-
-    pub fn select_interaction_file(&self, must_exist: bool) {
-        self.select_file(FileRequest::Interaction { must_exist });
-    }
-
-    pub fn select_analyser_files(&self) {
+    pub fn select_analyser_files(&self, paths: Vec<PathBuf>) {
         let sender = self.sender.clone();
         let library = self.analyser_library.clone();
-        spawn_task("cardpeek-desktop-analyser-picker", move || {
-            let paths = rfd::FileDialog::new()
-                .add_filter("Lua analysers", &["lua"])
-                .pick_files();
-            if let Some(paths) = paths {
-                let result = library
-                    .import_files(paths.iter().map(PathBuf::as_path))
-                    .map(|imported| imported.into_iter().map(|analyser| analyser.id).collect())
-                    .map_err(|error| error.to_string());
-                let _ = sender.send(UiMessage::AnalyserChanged(result));
-            }
+        spawn_task("cardpeek-desktop-analyser-import", move || {
+            let result = library
+                .import_files(paths.iter().map(PathBuf::as_path))
+                .map(|imported| imported.into_iter().map(|analyser| analyser.id).collect())
+                .map_err(|error| error.to_string());
+            let _ = sender.send(UiMessage::AnalyserChanged(result));
         });
     }
 
@@ -453,26 +435,6 @@ impl<B: SessionBackend> Controller<B> {
         let _ = self.submit(CommandKind::DiscoverAnalysers(
             self.analyser_library.root().to_path_buf(),
         ));
-    }
-
-    fn select_file(&self, request: FileRequest) {
-        let sender = self.sender.clone();
-        spawn_task("cardpeek-desktop-file-dialog", move || {
-            let dialog = rfd::FileDialog::new();
-            let path = match request {
-                FileRequest::Export | FileRequest::Interaction { must_exist: false } => {
-                    dialog.save_file()
-                }
-                FileRequest::Interaction { must_exist: true } => dialog.pick_file(),
-            };
-            if let Some(path) = path {
-                let message = match request {
-                    FileRequest::Export => UiMessage::ExportDestination(path),
-                    FileRequest::Interaction { .. } => UiMessage::InteractionFile(path),
-                };
-                let _ = sender.send(message);
-            }
-        });
     }
 
     pub fn export(&self, state: &mut DesktopState) {
@@ -536,11 +498,6 @@ impl<B: SessionBackend> Controller<B> {
 enum ExportRequest {
     Document(ExportDocument),
     Trace(TraceDocument),
-}
-
-enum FileRequest {
-    Export,
-    Interaction { must_exist: bool },
 }
 
 fn spawn_task(name: &str, task: impl FnOnce() + Send + 'static) {

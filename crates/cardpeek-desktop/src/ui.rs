@@ -1,5 +1,6 @@
 #![allow(missing_docs, clippy::unreadable_literal)]
 
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -9,10 +10,10 @@ use cardpeek_app::{
 use cardpeek_core::{Protocol, ResultNode, RunId, TraceRecord, TransportKind};
 use gpui::{
     AnyElement, AppContext, Application, Bounds, ClipboardItem, Context, Div, Entity, FontWeight,
-    Global, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, Pixels, Point, Render,
-    Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Task, TitlebarOptions,
-    Window, WindowBounds, WindowOptions, anchored, canvas, deferred, div, fill, point, prelude::*,
-    px, rgb, size, uniform_list,
+    Global, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, PathPromptOptions, Pixels,
+    Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Task,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, anchored, canvas, deferred, div, fill,
+    point, prelude::*, px, rgb, size, uniform_list,
 };
 
 use crate::DesktopBackend;
@@ -452,6 +453,109 @@ impl App {
         self.export = None;
         self.sync_external_inputs(cx);
         cx.notify();
+    }
+
+    fn select_paths(&mut self, multiple: bool, cx: &mut Context<'_, Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple,
+            prompt: None,
+        });
+        cx.spawn(
+            move |app: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let mut cx = cx.clone();
+                async move {
+                    let result = receiver.await;
+                    app.update(&mut cx, |app, _cx| match result {
+                        Ok(Ok(Some(paths))) if multiple => {
+                            app.controller.select_analyser_files(paths)
+                        }
+                        Ok(Ok(Some(paths))) => {
+                            if let Some(path) = paths.into_iter().next() {
+                                app.controller.select_trace_file(path);
+                            }
+                        }
+                        Ok(Ok(None)) => {}
+                        Ok(Err(error)) => app
+                            .state
+                            .notify_error(format!("Cannot open file picker: {error}")),
+                        Err(_) => app
+                            .state
+                            .notify_error("The file picker closed unexpectedly."),
+                    })
+                    .ok();
+                }
+            },
+        )
+        .detach();
+    }
+
+    fn select_save_path(&mut self, interaction: bool, cx: &mut Context<'_, Self>) {
+        let suggested_name = self.state.export_destination.clone();
+        let directory = Path::new(&suggested_name)
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .map_or_else(PathBuf::new, Path::to_path_buf);
+        let receiver = cx.prompt_for_new_path(&directory, Some(&suggested_name));
+        cx.spawn(
+            move |app: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let mut cx = cx.clone();
+                async move {
+                    let result = receiver.await;
+                    app.update(&mut cx, |app, cx| match result {
+                        Ok(Ok(Some(path))) if interaction => {
+                            app.state.interaction_file = Some(path);
+                            cx.notify();
+                        }
+                        Ok(Ok(Some(path))) => {
+                            app.state.export_destination = path.display().to_string();
+                            app.sync_external_inputs(cx);
+                            cx.notify();
+                        }
+                        Ok(Ok(None)) => {}
+                        Ok(Err(error)) => app
+                            .state
+                            .notify_error(format!("Cannot open file picker: {error}")),
+                        Err(_) => app
+                            .state
+                            .notify_error("The file picker closed unexpectedly."),
+                    })
+                    .ok();
+                }
+            },
+        )
+        .detach();
+    }
+
+    fn select_interaction_file(&mut self, cx: &mut Context<'_, Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(|app: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+            let mut cx = cx.clone();
+            async move {
+                let result = receiver.await;
+                app.update(&mut cx, |app, cx| match result {
+                    Ok(Ok(Some(paths))) => {
+                        app.state.interaction_file = paths.into_iter().next();
+                        cx.notify();
+                    }
+                    Ok(Ok(None)) => {}
+                    Ok(Err(error)) => app
+                        .state
+                        .notify_error(format!("Cannot open file picker: {error}")),
+                    Err(_) => app
+                        .state
+                        .notify_error("The file picker closed unexpectedly."),
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
     fn header(&self) -> Div {
@@ -1922,7 +2026,7 @@ impl App {
                                 "Import trace",
                                 ButtonKind::Normal,
                                 true,
-                                cx.listener(|app, _, _, _| app.controller.select_trace_file()),
+                                cx.listener(|app, _, _, cx| app.select_paths(false, cx)),
                             ))
                             .child(button(
                                 "export-open-trace",
@@ -2535,8 +2639,7 @@ impl App {
                             .child(div().px_4().h(px(54.)).flex().items_center().justify_between().border_b_1().border_color(BORDER).child(div().child(div().font_weight(FontWeight::SEMIBOLD).child("Analyser library")).child(note("Metadata is read without executing scripts"))).child(badge(format!("{} INSTALLED", self.state.analysers.len()), MUTED, CANVAS)))
                             .child(library)
                             .child(div().p_3().flex().items_center().justify_between().child(note("User library / Shared with the CLI")).child(button("add-analyser", "Add analyser", ButtonKind::Primary, !self.state.run_running(), cx.listener(|app, _, _, cx| {
-                                app.controller.select_analyser_files();
-                                cx.notify();
+                                app.select_paths(true, cx);
                             })))),
                     )
                     .child(
@@ -2635,7 +2738,7 @@ impl App {
                         "Browse",
                         ButtonKind::Normal,
                         true,
-                        cx.listener(|app, _, _, _| app.controller.select_export_destination()),
+                        cx.listener(|app, _, _, cx| app.select_save_path(false, cx)),
                     )),
             );
         }
@@ -2720,8 +2823,12 @@ impl App {
                         "Choose file",
                         ButtonKind::Normal,
                         true,
-                        cx.listener(move |app, _, _, _| {
-                            app.controller.select_interaction_file(must_exist);
+                        cx.listener(move |app, _, _, cx| {
+                            if must_exist {
+                                app.select_interaction_file(cx);
+                            } else {
+                                app.select_save_path(true, cx);
+                            }
                         }),
                     ))
                     .child(note(&self.state.interaction_file.as_ref().map_or_else(
