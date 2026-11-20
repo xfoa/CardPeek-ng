@@ -748,7 +748,7 @@ impl App {
                 .child(field_label("Physical reader"))
                 .child(self.reader_list(cx))
                 .child(div().mt_4().p_4().rounded_md().bg(CANVAS).flex().items_center().gap_4()
-                    .child(reader_device(false))
+                    .child(reader_session_icon(connected, self.state.card_present()))
                     .child(div().child(div().font_weight(FontWeight::SEMIBOLD).child(status))
                         .child(note("The physical session is independent of open traces and analysis."))))
                 .child(div().mt_4().flex().gap_2()
@@ -3524,10 +3524,27 @@ fn radio_option(
         .on_mouse_down(MouseButton::Left, on_click)
         .child(
             div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(format!("{} {title}", if selected { "[x]" } else { "[ ]" })),
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .rounded_full()
+                        .border_2()
+                        .border_color(if selected { GREEN } else { MUTED })
+                        .bg(WHITE)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(selected, |element| {
+                            element.child(div().size(px(8.)).rounded_full().bg(GREEN))
+                        }),
+                )
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(title)),
         )
-        .child(note(text))
+        .child(div().pl_6().child(note(text)))
 }
 
 fn modal(title: &'static str, subtitle: &str, body: Div, actions: Div) -> Div {
@@ -3591,24 +3608,60 @@ fn brand_mark() -> Div {
         )
 }
 
-fn reader_device(replay: bool) -> Div {
+fn reader_session_icon(connected: bool, card_present: bool) -> Div {
+    let color = if !connected {
+        MUTED
+    } else if card_present {
+        GREEN
+    } else {
+        AMBER
+    };
+    let background = if !connected {
+        BORDER
+    } else if card_present {
+        GREEN_SOFT
+    } else {
+        AMBER_SOFT
+    };
+    let badge = if !connected {
+        "\u{f00d}"
+    } else if card_present {
+        "\u{f00c}"
+    } else {
+        "\u{f068}"
+    };
     div()
-        .w(px(52.))
-        .h(px(66.))
-        .rounded_md()
-        .bg(if replay { AMBER_SOFT } else { GREEN_SOFT })
-        .border_1()
-        .border_color(if replay { AMBER } else { GREEN })
+        .relative()
+        .size(px(52.))
+        .rounded_lg()
+        .bg(background)
+        .text_color(color)
         .flex()
         .items_center()
         .justify_center()
         .child(
             div()
-                .w(px(28.))
-                .h(px(20.))
-                .rounded_sm()
+                .font_family("Font Awesome 7 Brands")
+                .text_size(px(24.))
+                .child("\u{f287}"),
+        )
+        .child(
+            div()
+                .absolute()
+                .bottom(px(-3.))
+                .right(px(-3.))
+                .size(px(17.))
+                .rounded_full()
                 .border_2()
-                .border_color(if replay { AMBER } else { GREEN }),
+                .border_color(CANVAS)
+                .bg(color)
+                .text_color(WHITE)
+                .flex()
+                .items_center()
+                .justify_center()
+                .font_family("Font Awesome 7 Free Solid")
+                .text_size(px(9.))
+                .child(badge),
         )
 }
 
