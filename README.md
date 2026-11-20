@@ -1,200 +1,120 @@
 # Cardpeek-ng
 
-Cardpeek-ng reads and analyses smart cards through PC/SC readers.
-It includes a desktop application and a command-line interface.
-Lua analysers decode card data into a searchable result document.
-You can inspect APDU exchanges, save them as JSON traces, and replay those traces without a card or reader.
+Cardpeek-ng reads smart cards through PC/SC readers and uses Lua analysers to decode their data.
+It is useful for debugging smart card data and interactions, as well as forensic analysis.
+The application exists as both a desktop GUI application and a CLI tool.
+Alongside the readable results, commands and responses that produced them can be viewed and replayed in a trace view.
+You can also save a trace and analyse it later without a card or reader.
 
-Cardpeek-ng is inspired by [Cardpeek](https://github.com/l1l1/cardpeek), but uses its own analysers and file formats.
-It does not read Cardpeek Lua analysers, XML documents, or trace captures.
+## Why use Cardpeek-ng?
 
-## Screenshots
+Flexibility was a key tenet in the design of this application, and analysers are modular and written in Lua.
+Card interaction is separated from data formatting, so the analysers can format data offline from previously recorded interactions (traces).
 
-### Reader
+Raw card commands and responses are hard to interpret on their own, so Cardpeek-ng links each decoded value to its source record.
+You can inspect a card and save its results and communication without losing that connection, so testing custom analysers is easy.
 
-Connect to a PC/SC reader and inspect the current card capture.
+Cardpeek-ng is inspired by the original [Cardpeek](https://github.com/l1l1/cardpeek) application, but is a re-implementation from scratch in Rust.
+It does not support legacy Cardpeek scripts or files.
 
-![Reader workspace](resources/screenshots/reader.png)
+## How do I start?
 
-### Analysis
+### Requirements
 
-Run an analyser and explore the decoded result document.
+To read a physical card, you need a PC/SC reader, a test card, and a running PC/SC service.
+Building from source also requires the Rust toolchain specified by the project and the PC/SC development files.
+On Debian or Ubuntu, install `pcscd`, `libpcsclite-dev`, and `pkg-config`; Windows and macOS provide their own PC/SC support.
 
-![Analysis workspace](resources/screenshots/analyser.png)
+Start with a disposable test card because card operations can change card state or expose personal data.
+Do not experiment with a card whose contents or continued operation matter to you.
 
-### Trace
+### Run the desktop application
 
-Inspect, search, and filter APDU exchanges in capture order.
-
-![Trace workspace](resources/screenshots/trace.png)
-
-### Library
-
-Manage the Lua analysers shared by the desktop application and CLI.
-
-![Analyser library](resources/screenshots/library.png)
-
-## Install the prerequisites
-
-Install Rust 1.100 or newer and the PC/SC development files.
-
-On Debian or Ubuntu, install the reader service and the packages needed to build both applications:
-
-```sh
-sudo apt install pcscd libpcsclite-dev pkg-config libgtk-3-dev
-```
-
-Windows uses the built-in Smart Card service.
-macOS uses the built-in PCSC framework.
-
-The commands below run from the repository root.
-
-## Use the desktop application
-
-Start the application:
+From the project directory, run:
 
 ```sh
 cargo run -p cardpeek-desktop
 ```
 
-The application has four workspaces:
+The application creates your analyser library on first use and installs the bundled analysers.
 
-- **Reader** selects a PC/SC reader, connects to a card, sends APDUs, and exports captures.
-- **Analysis** runs an analyser against the connected card or a segment of an open trace.
-  It shows progress, logs, APDU exchanges, and decoded results.
-- **Trace** opens a JSON trace and lets you inspect, search, filter, and export its exchanges.
-- **Library** imports and removes Lua analysers.
+### Read your first card
 
-To open a trace at startup:
+1. Insert the test card into the reader.
+2. Open **Reader**, select the physical reader, and select **Connect**.
+3. Open **Analysis**.
+4. Select **Live card** and choose an analyser.
+   **ATR** reads the card's Answer to Reset.
+   **GSM SIM and USIM** reads supported SIM files without authentication or writes.
+5. Select **Analyze live card**.
+6. Expand the result tree, or search for labels and values.
+   Select an item to see its details.
 
-```sh
-cargo run -p cardpeek-desktop -- tests/fixtures/traces/atr-synthetic-001.json
-```
+Cardpeek-ng does not probe cards to choose an analyser, so select the one that matches your card.
 
-Opening a trace does not run an analyser.
-Select a reset-delimited segment in Analysis to decode or replay it.
+## What do the workspaces show?
 
-## CLI
+### Reader
 
-### Try it without a card
+The Reader workspace controls the physical card session and shows the current card, capture totals, and session exchanges.
+From here you can connect or disconnect, reset the reader, and send an individual APDU.
 
-Replay the included synthetic ATR trace:
+Only send an APDU when you understand what it does.
+A status word of `9000` means success, while other values report warnings, errors, or card-specific results.
 
-```sh
-cargo run -p cardpeek-cli -- replay \
-  tests/fixtures/traces/atr-synthetic-001.json \
-  atr \
-  --output /tmp/atr-result.json
-```
+![The Reader workspace with a PC/SC reader selected](resources/screenshots/reader.png)
 
-This writes the decoded result to `/tmp/atr-result.json`.
-The expected result is in [`tests/fixtures/documents/atr-synthetic-001.json`](tests/fixtures/documents/atr-synthetic-001.json).
+### Analysis
 
-The first run creates a personal analyser library and copies the bundled analysers into it.
-No card reader is needed for replay.
+The Analysis workspace runs a selected analyser against a live card or saved data, then presents the results as a searchable tree.
+Select a result to inspect its value, type, and source information, or open the run details for progress and log messages.
+Use **Export result** to keep the result document.
 
-### Use a real card
+![Analysis results from the GSM SIM and USIM analyser](resources/screenshots/analyser.png)
 
-If you're new to smart cards, use a disposable test card first.
-Do not start with a card that contains credentials or personal data.
-Only send APDUs whose effects you understand.
+### Trace
 
-List the connected readers:
+A trace records resets, transmitted commands, received responses, and status words in order.
+Card resets divide the trace into segments, and you can filter records or search for exact bytes, a status word, or a record ID.
+
+- **Load current session** opens the current capture without contacting the card again.
+- **Import trace** opens a saved trace for offline inspection.
+- **Export trace** saves the current trace.
+- **Decode in Analysis** analyses saved capture data without accessing a physical card.
+
+Raw traces can contain card identifiers, personal data, and command or response data, so review exports before sharing them.
+When you share a trace, use a sanitised export to redact the ATR and command and response data.
+
+![A captured trace showing commands and responses in record order](resources/screenshots/trace.png)
+
+### Library
+
+The Library workspace lists installed analysers with their versions and capabilities.
+Use **Add analyser** to import Lua files or **Remove** to uninstall one.
+The desktop and command-line applications share this library.
+
+Lua analysers are trusted code and do not run in a security sandbox, so import only scripts that you trust and have reviewed.
+For the scripting API and metadata format, see [Write analyser scripts](docs/analysers.md).
+
+![The analyser library with the bundled ATR and GSM SIM and USIM analysers](resources/screenshots/library.png)
+
+## Command-line alternative
+
+The CLI supports the same card and trace tasks as the desktop application.
+For example, list available readers with:
 
 ```sh
 cargo run -p cardpeek-cli -- readers
 ```
 
-Copy the exact reader name from the output, then run the ATR analyser:
+## Privacy and compatibility
 
-```sh
-cargo run -p cardpeek-cli -- run \
-  "Exact reader name" \
-  atr \
-  --output /tmp/atr-result.json \
-  --trace-output /tmp/atr-trace.json
-```
+Cardpeek-ng sends no telemetry, and exported result documents and traces stay on your device until you share them.
+Review exports for sensitive information first.
 
-To send one APDU and record the exchange:
+Cardpeek-ng uses its own Lua API and native JSON document and trace formats, which are not compatible with legacy Cardpeek analysers, XML documents, or trace captures.
 
-```sh
-cargo run -p cardpeek-cli -- transmit \
-  "Exact reader name" \
-  00A40000023F00 \
-  --trace-output /tmp/apdu-trace.json
-```
-
-Trace exports are raw by default.
-Use `--trace-mode sanitised` to redact ATR values, command data, and response data:
-
-```sh
-cargo run -p cardpeek-cli -- run \
-  "Exact reader name" \
-  atr \
-  --output /tmp/atr-result.json \
-  --trace-output /tmp/atr-trace.json \
-  --trace-mode sanitised
-```
-
-Raw traces contain card data and APDU exchanges.
-Treat them as sensitive files.
-Review sanitised traces before sharing them; redaction does not remove every possible card-specific value.
-
-### Manage analysers
-
-See [Write analyser scripts](docs/analysers.md) for the Lua API, examples, testing, and installation instructions.
-
-List the installed analysers and the library location:
-
-```sh
-cargo run -p cardpeek-cli -- analysers list
-```
-
-Import every Lua analyser directly inside a directory:
-
-```sh
-cargo run -p cardpeek-cli -- analysers import /path/to/analysers
-```
-
-Remove an analyser by its identifier:
-
-```sh
-cargo run -p cardpeek-cli -- analysers remove atr
-```
-
-The desktop and CLI applications share this library.
-They do not copy bundled analysers into an existing library again.
-
-Use `--analysers DIRECTORY` with `run` or `replay` to use a different analyser directory without changing the personal library.
-
-Lua analysers are trusted code and are not sandboxed.
-Only install and run scripts you trust.
-
-### Build and test
-
-The default tests use synthetic fixtures and do not need a card reader:
-
-```sh
-cargo test --workspace
-```
-
-Run all local checks with:
-
-```sh
-cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo doc --workspace --no-deps
-```
-
-Hardware tests are separate and require a disposable test card.
-See [`docs/hardware-tests.md`](docs/hardware-tests.md).
-Developer documentation is in [`docs/architecture`](docs/architecture).
-
-## License
-
-Cardpeek-ng is licensed under GPL-3.0-or-later.
-See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).
+For hardware checks, see [PC/SC hardware tests](docs/hardware-tests.md).
+Cardpeek-ng is distributed under [GPL-3.0-or-later](LICENSE).
 
 [![CI](https://github.com/xfoa/Cardpeek-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/xfoa/Cardpeek-ng/actions/workflows/ci.yml)
