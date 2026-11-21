@@ -16,6 +16,72 @@ fn analysers() -> String {
 }
 
 #[test]
+fn replay_waits_for_operations_with_more_than_128_events() {
+    let directory = tempfile::tempdir().unwrap();
+    let analysers = directory.path().join("analysers");
+    std::fs::create_dir(&analysers).unwrap();
+    std::fs::write(
+        analysers.join("many.lua"),
+        r"-- @id many
+-- @title Many exchanges
+-- @description Exercise long replay operations
+-- @version 1.0.0
+-- @capabilities live, replay
+local cardpeek = require('cardpeek')
+local command = cardpeek.bytes.from_hex('00B0000000')
+for _ = 1, 65 do
+  local response, failure = cardpeek.card.transmit(command)
+  assert(failure == nil, failure and failure.message or 'APDU failed')
+  assert(response.status == 0x9000)
+end
+local root = cardpeek.nodes.root()
+root:append('card', 'Long replay')
+cardpeek.log.info('Completed 65 exchanges')
+",
+    )
+    .unwrap();
+    let mut records = vec![serde_json::json!({
+        "kind": "reset",
+        "mode": "cold",
+        "atr": { "width": 8, "elements": [59, 143, 128] },
+        "id": "long-reset"
+    })];
+    for index in 0..65 {
+        records.push(serde_json::json!({
+            "id": format!("long-command-{index}"),
+            "kind": "command",
+            "command": [0, 176, 0, 0, 0],
+            "response": { "data": [], "status": 36864 }
+        }));
+    }
+    let trace = directory.path().join("long.json");
+    std::fs::write(
+        &trace,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "records": records
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = directory.path().join("long-result.json");
+    Command::cargo_bin("cardpeek")
+        .unwrap()
+        .arg("replay")
+        .arg(trace)
+        .arg("--analysers")
+        .arg(analysers)
+        .arg("many")
+        .arg("--output")
+        .arg(&output)
+        .assert()
+        .success()
+        .stdout(contains("Exported 1 nodes in revision 1"))
+        .stderr(contains("Info: Completed 65 exchanges"));
+    assert!(output.is_file());
+}
+
+#[test]
 fn discovers_analysers_without_executing_them() {
     Command::cargo_bin("cardpeek")
         .unwrap()
@@ -23,7 +89,7 @@ fn discovers_analysers_without_executing_them() {
         .arg(analysers())
         .assert()
         .success()
-        .stdout("ID        VERSION  TITLE             DESCRIPTION\natr       1.0.0    Card read         Read the current Answer to Reset\ngsm-usim  1.0.0    GSM SIM and USIM  Inspect GSM SIM and USIM files without authentication or writes\n");
+        .stdout("ID        VERSION  TITLE             DESCRIPTION\natr       1.0.0    Card read         Read the current Answer to Reset\ngsm-usim  1.0.0    GSM SIM and USIM  Inspect GSM SIM and USIM files with optional PIN1 verification\n");
 }
 
 #[test]
@@ -61,8 +127,8 @@ fn replays_gsm_usim_files_and_preserves_read_only_behaviour() {
         .arg(&output)
         .assert()
         .success()
-        .stdout(contains("Exported 63 nodes in revision 1"))
-        .stderr(contains("Info: Selected 9 files and read 1 records"));
+        .stdout(contains("Exported 69 nodes in revision 1"))
+        .stderr(contains("Info: Selected 10 files and read 1 records"));
     let actual = std::fs::read_to_string(output).unwrap();
     assert_eq!(actual, GSM_USIM_EXPECTED);
     assert!(actual.contains("Text:\\nHello"));

@@ -9,17 +9,18 @@ use cardpeek_app::{
 };
 use cardpeek_core::{Protocol, ResultNode, RunId, TraceRecord, TransportKind};
 use gpui::{
-    AnyElement, AppContext, Application, Bounds, ClipboardItem, Context, Div, Entity, FontWeight,
-    Global, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, PathPromptOptions, Pixels,
-    Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Task,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, anchored, canvas, deferred, div, fill,
-    point, prelude::*, px, rgb, size, uniform_list,
+    AnyElement, AppContext, Application, Bounds, ClipboardItem, Context, Div, Entity, FocusHandle,
+    FontWeight, Global, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    PathPromptOptions, Pixels, Point, Render, Rgba, ScrollStrategy, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Task, TitlebarOptions, UniformListScrollHandle, Window,
+    WindowBounds, WindowOptions, anchored, canvas, deferred, div, fill, point, prelude::*, px, rgb,
+    size, uniform_list,
 };
 
 use crate::DesktopBackend;
 use crate::controller::Controller;
 use crate::help::{self, HelpEntry};
-use crate::input::{TextField, TextFieldEvent, bind_keys};
+use crate::input::{Confirm, TextField, TextFieldEvent, bind_keys};
 use crate::preferences::Preferences;
 use crate::state::{
     AnalysisInput, DesktopState, ExportKind, ExportTraceSource, NotificationLevel, Screen,
@@ -153,6 +154,7 @@ struct TreeCacheKey {
     revision: u64,
     search: String,
     expanded: Vec<String>,
+    search_expanded: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -242,6 +244,7 @@ enum NotificationHistory {
 pub struct App {
     controller: DesktopController,
     state: DesktopState,
+    dialog_focus: FocusHandle,
     _preferences: Preferences,
     search: Entity<TextField>,
     trace_search: Entity<TextField>,
@@ -254,8 +257,11 @@ pub struct App {
     trace_segment_menu_open: bool,
     notification_history: NotificationHistory,
     context_menu: Option<ContextMenu>,
+    context_menu_source: Option<String>,
     tree_key: Option<TreeCacheKey>,
     tree_rows: Rc<Vec<(ResultNode, usize, bool)>>,
+    tree_scroll: UniformListScrollHandle,
+    center_selected: Option<String>,
     tools_height: f32,
     details_width: f32,
     tools_resize: Option<PanelResize>,
@@ -275,21 +281,29 @@ impl App {
             cx.new(|cx| TextField::new(cx, "", "Find exact bytes, status, or record ID", false));
         let apdu = cx.new(|cx| TextField::new(cx, "", "00 A4 04 00 02 3F 00 00", false));
         cx.subscribe(&search, |app, _, event, cx| {
-            let TextFieldEvent::Changed(value) = event;
-            app.state.set_search(value.clone());
-            cx.notify();
+            if let TextFieldEvent::Changed(value) = event {
+                let was_searching = !app.state.search.trim().is_empty();
+                let searching = !value.trim().is_empty();
+                app.center_selected = (was_searching && !searching)
+                    .then(|| app.state.selected_node.clone())
+                    .flatten();
+                app.state.set_search(value.clone());
+                cx.notify();
+            }
         })
         .detach();
         cx.subscribe(&trace_search, |app, _, event, cx| {
-            let TextFieldEvent::Changed(value) = event;
-            app.state.trace_search.clone_from(value);
-            cx.notify();
+            if let TextFieldEvent::Changed(value) = event {
+                app.state.trace_search.clone_from(value);
+                cx.notify();
+            }
         })
         .detach();
         cx.subscribe(&apdu, |app, _, event, cx| {
-            let TextFieldEvent::Changed(value) = event;
-            app.state.apdu_command.clone_from(value);
-            cx.notify();
+            if let TextFieldEvent::Changed(value) = event {
+                app.state.apdu_command.clone_from(value);
+                cx.notify();
+            }
         })
         .detach();
         let poll = cx.spawn(|app: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
@@ -328,6 +342,7 @@ impl App {
         Self {
             controller,
             state,
+            dialog_focus: cx.focus_handle(),
             _preferences: preferences,
             search,
             trace_search,
@@ -340,8 +355,11 @@ impl App {
             trace_segment_menu_open: false,
             notification_history: NotificationHistory::Collapsed,
             context_menu: None,
+            context_menu_source: None,
             tree_key: None,
             tree_rows: Rc::new(Vec::new()),
+            tree_scroll: UniformListScrollHandle::new(),
+            center_selected: None,
             tools_height: 180.,
             details_width: 360.,
             tools_resize: None,
@@ -373,6 +391,12 @@ impl App {
                 };
                 let masked = matches!(request.kind, InteractionKind::SecretInput { .. });
                 let field = cx.new(|cx| TextField::new(cx, default, "Enter response", masked));
+                cx.subscribe(&field, |app, _, event, cx| {
+                    if matches!(event, TextFieldEvent::Submitted) {
+                        app.submit_interaction_text(cx);
+                    }
+                })
+                .detach();
                 self.interaction = Some(field);
             }
         }
@@ -394,9 +418,10 @@ impl App {
                     )
                 });
                 cx.subscribe(&field, |app, _, event, cx| {
-                    let TextFieldEvent::Changed(value) = event;
-                    app.state.export_destination.clone_from(value);
-                    cx.notify();
+                    if let TextFieldEvent::Changed(value) = event {
+                        app.state.export_destination.clone_from(value);
+                        cx.notify();
+                    }
                 })
                 .detach();
                 self.export = Some(field);
@@ -1355,6 +1380,7 @@ impl App {
     fn analyser_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
         let mut menu = div()
             .id("analyser-menu")
+            .occlude()
             .on_mouse_down_out(cx.listener(|app, _, _, cx| {
                 app.analyser_menu_open = false;
                 cx.notify();
@@ -1416,6 +1442,7 @@ impl App {
     fn input_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
         let mut menu = div()
             .id("analysis-input-menu")
+            .occlude()
             .on_mouse_down_out(cx.listener(|app, _, _, cx| {
                 app.input_menu_open = false;
                 cx.notify();
@@ -1605,6 +1632,7 @@ impl App {
             revision: document.revision,
             search: self.state.search.clone(),
             expanded: self.state.expanded.iter().cloned().collect(),
+            search_expanded: self.state.search_expanded.iter().cloned().collect(),
         });
         if self.tree_key != key {
             self.tree_rows = Rc::new(
@@ -1615,6 +1643,15 @@ impl App {
                     .collect(),
             );
             self.tree_key = key;
+            if let Some(selected) = self.center_selected.take()
+                && let Some(index) = self
+                    .tree_rows
+                    .iter()
+                    .position(|(node, _, _)| node.id.as_str() == selected)
+            {
+                self.tree_scroll
+                    .scroll_to_item_strict(index, ScrollStrategy::Center);
+            }
         }
         if searching && self.tree_rows.is_empty() {
             return div()
@@ -1633,11 +1670,12 @@ impl App {
                 range
                     .map(|index| {
                         let (node, depth, expanded) = rows[index].clone();
-                        app.tree_node(&node, depth, expanded, searching, index, cx)
+                        app.tree_node(&node, depth, expanded, index, cx)
                     })
                     .collect::<Vec<_>>()
             }),
         )
+        .track_scroll(self.tree_scroll.clone())
         .flex_1()
         .w_full()
         .min_w_0()
@@ -1651,7 +1689,6 @@ impl App {
         node: &ResultNode,
         depth: usize,
         expanded: bool,
-        searching: bool,
         index: usize,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
@@ -1698,8 +1735,8 @@ impl App {
                 MouseButton::Left,
                 cx.listener(move |app, _, _, cx| {
                     app.state.selected_node = Some(id.clone());
-                    if has_children && !searching && !app.state.expanded.remove(&id) {
-                        app.state.expanded.insert(id.clone());
+                    if has_children {
+                        app.state.toggle_node(&id);
                     }
                     cx.notify();
                 }),
@@ -1721,11 +1758,7 @@ impl App {
                     .text_color(MUTED)
                     .font_family("Font Awesome 7 Free Solid")
                     .child(if has_children {
-                        if expanded || searching {
-                            "\u{f078}"
-                        } else {
-                            "\u{f054}"
-                        }
+                        if expanded { "\u{f078}" } else { "\u{f054}" }
                     } else {
                         ""
                     }),
@@ -2122,6 +2155,7 @@ impl App {
     fn trace_segment_menu(&self, cx: &mut Context<'_, Self>) -> Stateful<Div> {
         let mut menu = div()
             .id("trace-segment-menu")
+            .occlude()
             .on_mouse_down_out(cx.listener(|app, _, _, cx| {
                 app.trace_segment_menu_open = false;
                 cx.notify();
@@ -2785,6 +2819,7 @@ impl App {
         let id = request.id.clone();
         let prompt = match &request.kind {
             InteractionKind::Question { prompt }
+            | InteractionKind::Notice { prompt }
             | InteractionKind::TextInput { prompt, .. }
             | InteractionKind::SecretInput { prompt }
             | InteractionKind::FileSelection { prompt, .. } => prompt.clone(),
@@ -2815,6 +2850,18 @@ impl App {
                             cx.notify();
                         }),
                     ));
+            }
+            InteractionKind::Notice { .. } => {
+                footer = footer.child(button(
+                    "acknowledge-interaction",
+                    "OK",
+                    ButtonKind::Primary,
+                    true,
+                    cx.listener(move |app, _, _, cx| {
+                        app.answer(id.clone(), InteractionResponse::Acknowledged);
+                        cx.notify();
+                    }),
+                ));
             }
             InteractionKind::FileSelection { must_exist, .. } => {
                 body = body
@@ -2860,18 +2907,8 @@ impl App {
                     "Submit",
                     ButtonKind::Primary,
                     true,
-                    cx.listener(move |app, _, _, cx| {
-                        let text = app
-                            .interaction
-                            .as_ref()
-                            .map_or_else(String::new, |field| field.read(cx).text().to_string());
-                        let response = if matches!(kind, InteractionKind::SecretInput { .. }) {
-                            InteractionResponse::Secret(text)
-                        } else {
-                            InteractionResponse::Text(text)
-                        };
-                        app.answer(id.clone(), response);
-                        cx.notify();
+                    cx.listener(|app, _, _, cx| {
+                        app.submit_interaction_text(cx);
                     }),
                 ));
             }
@@ -2882,6 +2919,36 @@ impl App {
             body,
             footer,
         )
+    }
+
+    fn confirm_interaction(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(request) = self.state.interaction.clone() else {
+            return;
+        };
+        let response = match request.kind {
+            InteractionKind::Question { .. } => InteractionResponse::Bool(true),
+            InteractionKind::Notice { .. } => InteractionResponse::Acknowledged,
+            _ => return,
+        };
+        self.answer(request.id, response);
+        cx.notify();
+    }
+
+    fn submit_interaction_text(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(request) = self.state.interaction.clone() else {
+            return;
+        };
+        let Some(field) = self.interaction.as_ref() else {
+            return;
+        };
+        let text = field.read(cx).text().to_string();
+        let response = if matches!(request.kind, InteractionKind::SecretInput { .. }) {
+            InteractionResponse::Secret(text)
+        } else {
+            InteractionResponse::Text(text)
+        };
+        self.answer(request.id, response);
+        cx.notify();
     }
 
     fn answer(&mut self, request: cardpeek_app::InteractionId, response: InteractionResponse) {
@@ -2898,6 +2965,7 @@ impl App {
             deferred(
                 div()
                     .id("context-menu")
+                    .occlude()
                     .absolute()
                     .left(menu.position.x)
                     .top(menu.position.y)
@@ -2910,6 +2978,7 @@ impl App {
                     .shadow_lg()
                     .on_mouse_down_out(cx.listener(|app, _, _, cx| {
                         app.context_menu = None;
+                        app.context_menu_source = None;
                         cx.notify();
                     }))
                     .child(
@@ -2926,6 +2995,7 @@ impl App {
                                 cx.listener(move |app, _, _, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                                     app.context_menu = None;
+                                    app.context_menu_source = None;
                                     cx.notify();
                                 }),
                             )
@@ -3062,20 +3132,41 @@ impl App {
             .overflow_y_scroll()
             .flex()
             .flex_col();
-        for notification in self.state.notifications.iter().rev() {
+        for (index, notification) in self.state.notifications.iter().enumerate().rev() {
             let is_error = notification.level == NotificationLevel::Error;
+            let copy_text = notification.message.clone();
+            let source = format!("notification-{index}");
+            let source_for_menu = source.clone();
             messages = messages.child(
                 div()
-                    .min_h(px(38.))
+                    .h(px(38.))
                     .w_full()
                     .px_4()
-                    .py_2()
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .gap_3()
                     .border_b_1()
                     .border_color(BORDER)
+                    .cursor_pointer()
+                    .when(
+                        self.context_menu_source.as_deref() == Some(source.as_str()),
+                        |element| element.bg(BORDER),
+                    )
+                    .when(self.context_menu.is_none(), |element| {
+                        element.hover(|style| style.bg(BORDER))
+                    })
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                            app.context_menu_source = Some(source_for_menu.clone());
+                            app.context_menu = Some(ContextMenu {
+                                position: event.position,
+                                text: copy_text.clone(),
+                            });
+                            cx.notify();
+                        }),
+                    )
                     .child(
                         div()
                             .w(px(44.))
@@ -3102,7 +3193,16 @@ impl App {
 }
 
 impl Render for App {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let dialog_keyboard = self.state.interaction.as_ref().is_some_and(|request| {
+            matches!(
+                request.kind,
+                InteractionKind::Question { .. } | InteractionKind::Notice { .. }
+            )
+        });
+        if dialog_keyboard {
+            window.focus(&self.dialog_focus);
+        }
         let content = match self.state.screen {
             Screen::Reader => self.reader_page(cx).into_any_element(),
             Screen::Analysis => self.analysis_page(cx).into_any_element(),
@@ -3112,6 +3212,14 @@ impl Render for App {
         div()
             .relative()
             .size_full()
+            .track_focus(&self.dialog_focus)
+            .when(dialog_keyboard, |element| {
+                element.key_context("CardpeekDialog").on_action(cx.listener(
+                    |app, _: &Confirm, _, cx| {
+                        app.confirm_interaction(cx);
+                    },
+                ))
+            })
             .overflow_hidden()
             .bg(CANVAS)
             .text_color(INK)
@@ -3347,10 +3455,13 @@ fn exchange_list(
     uniform_list(
         id,
         rows.len(),
-        cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+        cx.processor(move |app, range: std::ops::Range<usize>, _, cx| {
             range
                 .map(|index| {
                     let exchange = rows[index].clone();
+                    let source = format!("{id}-{index}");
+                    let source_for_menu = source.clone();
+                    let pinned = app.context_menu_source.as_deref() == Some(source.as_str());
                     let copy_text = format!(
                         "TX\t{}\t{}\nRX\t{}\t{}",
                         exchange.command, exchange.record, exchange.data, exchange.status
@@ -3367,10 +3478,14 @@ fn exchange_list(
                         } else {
                             CANVAS
                         })
-                        .hover(|style| style.bg(BORDER))
+                        .when(pinned, |element| element.bg(BORDER))
+                        .when(app.context_menu.is_none(), |element| {
+                            element.hover(|style| style.bg(BORDER))
+                        })
                         .on_mouse_down(
                             MouseButton::Right,
                             cx.listener(move |app, event: &MouseDownEvent, _, cx| {
+                                app.context_menu_source = Some(source_for_menu.clone());
                                 app.context_menu = Some(ContextMenu {
                                     position: event.position,
                                     text: copy_text.clone(),

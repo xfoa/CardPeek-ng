@@ -1,6 +1,6 @@
 # Cardpeek-ng
 
-Cardpeek-ng reads smart cards through PC/SC readers and uses Lua analysers to decode their data.
+Cardpeek-ng reads smart cards through PC/SC readers and uses [Lua analysers](docs/analysers.md) to decode their data.
 It is useful for debugging smart card data and interactions, as well as forensic analysis.
 The application exists as both a desktop GUI application and a CLI tool.
 Alongside the readable results, commands and responses that produced them can be viewed and replayed in a trace view.

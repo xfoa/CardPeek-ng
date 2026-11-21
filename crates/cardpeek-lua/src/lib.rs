@@ -215,6 +215,7 @@ fn install_common_modules<'scope, 'env: 'scope, S: EventSink>(
     module.set("bytes", bytes_module(lua)?)?;
     module.set("nodes", nodes_module(lua, document, next_node, provenance)?)?;
     module.set("log", log_module(lua, scope, events)?)?;
+    module.set("ui", ui_module(lua, scope, events)?)?;
     let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
     loaded.set("cardpeek", module)
 }
@@ -751,6 +752,51 @@ fn log_module<'scope, 'env: 'scope, S: EventSink>(
             })?,
         )?;
     }
+    Ok(module)
+}
+
+fn ui_module<'scope, 'env: 'scope, S: EventSink>(
+    lua: &Lua,
+    scope: &'scope mlua::Scope<'scope, 'env>,
+    events: &'env S,
+) -> LuaResult<Table> {
+    let module = lua.create_table()?;
+    module.set(
+        "question",
+        scope.create_function(move |_lua, prompt: String| {
+            match events.interact(cardpeek_analyser::InteractionKind::Question, &prompt) {
+                Ok(cardpeek_analyser::InteractionResponse::Bool(value)) => Ok(value),
+                Ok(_) => Err(LuaError::external(HostError::new(
+                    "interaction response type mismatch",
+                ))),
+                Err(error) => Err(LuaError::external(error)),
+            }
+        })?,
+    )?;
+    module.set(
+        "notice",
+        scope.create_function(move |_lua, prompt: String| {
+            match events.interact(cardpeek_analyser::InteractionKind::Notice, &prompt) {
+                Ok(cardpeek_analyser::InteractionResponse::Acknowledged) => Ok(()),
+                Ok(_) => Err(LuaError::external(HostError::new(
+                    "interaction response type mismatch",
+                ))),
+                Err(error) => Err(LuaError::external(error)),
+            }
+        })?,
+    )?;
+    module.set(
+        "secret",
+        scope.create_function(move |_lua, prompt: String| {
+            match events.interact(cardpeek_analyser::InteractionKind::Secret, &prompt) {
+                Ok(cardpeek_analyser::InteractionResponse::Secret(value)) => Ok(Some(value)),
+                Ok(_) => Err(LuaError::external(HostError::new(
+                    "interaction response type mismatch",
+                ))),
+                Err(error) => Err(LuaError::external(error)),
+            }
+        })?,
+    )?;
     Ok(module)
 }
 

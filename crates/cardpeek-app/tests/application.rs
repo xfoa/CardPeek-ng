@@ -300,13 +300,13 @@ fn wait_for_terminal(events: &cardpeek_app::EventSubscription, operation: &Opera
     panic!("operation did not reach a terminal state");
 }
 
-fn next_request(events: &cardpeek_app::EventSubscription) -> InteractionId {
+fn next_request(events: &cardpeek_app::EventSubscription) -> cardpeek_app::InteractionRequest {
     loop {
         let event = events
             .recv_timeout(Duration::from_secs(2))
             .expect("interaction event");
         if let EventKind::InteractionRequested { request, .. } = event.kind {
-            return request.id;
+            return request;
         }
     }
 }
@@ -480,7 +480,7 @@ fn interaction_accepts_only_matching_type_and_id() {
     let request = next_request(&events);
     assert!(matches!(
         app.answer_interaction(AnswerInteraction {
-            request: request.clone(),
+            request: request.id.clone(),
             response: InteractionResponse::Text("not secret".into()),
         }),
         Err(AppError::InteractionResponseType)
@@ -493,7 +493,7 @@ fn interaction_accepts_only_matching_type_and_id() {
         Err(AppError::UnknownInteraction(_))
     ));
     app.answer_interaction(AnswerInteraction {
-        request,
+        request: request.id,
         response: InteractionResponse::Secret("1234".into()),
     })
     .unwrap();
@@ -503,6 +503,41 @@ fn interaction_accepts_only_matching_type_and_id() {
     );
     let disconnect = app.submit(CommandKind::Disconnect).unwrap();
     wait_for_terminal(&events, &disconnect);
+    app.shutdown().unwrap();
+}
+
+#[test]
+fn notice_interaction_requires_an_acknowledgement() {
+    let app = application(EngineConfig::default());
+    let (_session, events) = connect(&app);
+    let context = app.analyser_context(
+        OperationId::new("notice"),
+        RunId::new("run-notice").unwrap(),
+        CancellationToken::new(),
+    );
+    let worker = std::thread::spawn(move || {
+        context.interact(InteractionKind::Notice {
+            prompt: "PIN verified".into(),
+        })
+    });
+    let request = next_request(&events);
+    assert!(matches!(request.kind, InteractionKind::Notice { .. }));
+    assert!(
+        app.answer_interaction(AnswerInteraction {
+            request: request.id.clone(),
+            response: InteractionResponse::Bool(true),
+        })
+        .is_err()
+    );
+    app.answer_interaction(AnswerInteraction {
+        request: request.id,
+        response: InteractionResponse::Acknowledged,
+    })
+    .unwrap();
+    assert_eq!(
+        worker.join().unwrap().unwrap(),
+        InteractionResponse::Acknowledged
+    );
     app.shutdown().unwrap();
 }
 
@@ -763,6 +798,200 @@ fn discover_atr<B: SessionBackend>(app: &Application<B>, events: &cardpeek_app::
     );
 }
 
+fn pin_verification_trace() -> TraceDocument {
+    TraceDocument {
+        schema_version: 1,
+        captures: Vec::new(),
+        records: vec![
+            cardpeek_core::TraceRecord::Reset {
+                id: cardpeek_core::TraceRecordId::new("reset").unwrap(),
+                mode: ResetMode::Cold,
+                atr: Atr::new(vec![0x3b, 0]),
+            },
+            command_record("mf-a0", &[0xa0, 0xa4, 0, 0, 2, 0x3f, 0, 0], &[], 0x9f0f),
+            command_record(
+                "mf-response",
+                &[0xa0, 0xc0, 0, 0, 0x0f],
+                &legacy_mf(),
+                0x9000,
+            ),
+            command_record("dir", &[0xa0, 0xa4, 0, 0, 2, 0x2f, 0, 0], &[], 0x9404),
+            command_record("languages", &[0xa0, 0xa4, 0, 0, 2, 0x2f, 5, 0], &[], 0x9404),
+            command_record("arr", &[0xa0, 0xa4, 0, 0, 2, 0x2f, 6, 0], &[], 0x9404),
+            command_record("iccid", &[0xa0, 0xa4, 0, 0, 2, 0x2f, 0xe2, 0], &[], 0x9f0f),
+            command_record(
+                "iccid-response",
+                &[0xa0, 0xc0, 0, 0, 0x0f],
+                &legacy_iccid(),
+                0x9000,
+            ),
+            command_record("denied", &[0xa0, 0xb0, 0, 0, 10], &[], 0x9804),
+            command_record(
+                "verify",
+                &[
+                    0xa0, 0x20, 0, 1, 8, 0x31, 0x32, 0x33, 0x34, 0xff, 0xff, 0xff, 0xff,
+                ],
+                &[],
+                0x9000,
+            ),
+            command_record(
+                "retry",
+                &[0xa0, 0xb0, 0, 0, 10],
+                &[0x98, 0x53, 8, 0x26, 3, 0x29, 0x71, 0x70, 0x83, 0xf4],
+                0x9000,
+            ),
+            command_record(
+                "telecom",
+                &[0xa0, 0xa4, 0, 0, 2, 0x7f, 0x10, 0],
+                &[],
+                0x9404,
+            ),
+            command_record("gsm", &[0xa0, 0xa4, 0, 0, 2, 0x7f, 0x20, 0], &[], 0x9404),
+            command_record(
+                "mf-restore",
+                &[0xa0, 0xa4, 0, 0, 2, 0x3f, 0, 0],
+                &[],
+                0x9f0f,
+            ),
+            command_record(
+                "mf-response-2",
+                &[0xa0, 0xc0, 0, 0, 0x0f],
+                &legacy_mf(),
+                0x9000,
+            ),
+            command_record(
+                "gsm-probe",
+                &[0xa0, 0xa4, 0, 0, 2, 0x7f, 0x20, 0],
+                &[],
+                0x9404,
+            ),
+            command_record("mf-final", &[0xa0, 0xa4, 0, 0, 2, 0x3f, 0, 0], &[], 0x9f0f),
+            command_record(
+                "mf-response-3",
+                &[0xa0, 0xc0, 0, 0, 0x0f],
+                &legacy_mf(),
+                0x9000,
+            ),
+            command_record(
+                "usim",
+                &[
+                    0, 0xa4, 4, 0, 16, 0xa0, 0, 0, 0, 0x87, 0x10, 2, 0xff, 0xff, 0xff, 0xff, 0x89,
+                    7, 9, 0, 0, 0,
+                ],
+                &[],
+                0x6a82,
+            ),
+        ],
+    }
+}
+
+fn node_contains(node: &ResultNode, text: &str) -> bool {
+    node.alternative.as_deref() == Some(text)
+        || node.children.iter().any(|child| node_contains(child, text))
+}
+
+#[test]
+fn live_analyser_offers_one_pin_verification_and_retries_the_denied_read() {
+    let app = Application::new(
+        Backend {
+            trace: pin_verification_trace(),
+        },
+        EngineConfig::default(),
+    );
+    app.submit(CommandKind::DiscoverAnalysers(PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../analysers"
+    ))))
+    .unwrap();
+    let events = app.subscribe();
+    let session = app
+        .submit(CommandKind::Connect(ConnectRequest::new(
+            "Synthetic reader",
+            cardpeek_core::TransportKind::Pcsc,
+        )))
+        .unwrap();
+    wait_for_terminal(&events, &session);
+    let operation = app
+        .submit(CommandKind::RunAnalyser(run_request("gsm-usim", "pin")))
+        .unwrap();
+    let question = next_request(&events);
+    assert!(matches!(question.kind, InteractionKind::Question { .. }));
+    app.submit(CommandKind::AnswerInteraction(AnswerInteraction {
+        request: question.id,
+        response: InteractionResponse::Bool(true),
+    }))
+    .unwrap();
+    let secret = next_request(&events);
+    assert!(matches!(secret.kind, InteractionKind::SecretInput { .. }));
+    app.submit(CommandKind::AnswerInteraction(AnswerInteraction {
+        request: secret.id,
+        response: InteractionResponse::Secret("1234".into()),
+    }))
+    .unwrap();
+    let success = next_request(&events);
+    assert!(matches!(success.kind, InteractionKind::Notice { .. }));
+    app.submit(CommandKind::AnswerInteraction(AnswerInteraction {
+        request: success.id,
+        response: InteractionResponse::Acknowledged,
+    }))
+    .unwrap();
+    wait_for_terminal(&events, &operation);
+    assert_eq!(
+        app.operation(&operation).unwrap().status,
+        OperationStatus::Completed
+    );
+    let document = app
+        .document_snapshot(&RunId::new("run-pin").unwrap())
+        .unwrap()
+        .document;
+    assert!(
+        document
+            .roots
+            .iter()
+            .any(|node| node_contains(node, "8935806230921707384"))
+    );
+    assert!(
+        !document
+            .roots
+            .iter()
+            .any(|node| node_contains(node, "1234"))
+    );
+    let trace = app.trace_snapshot(&session).unwrap();
+    assert!(trace.records.iter().any(|record| matches!(record,
+        cardpeek_core::TraceRecord::Command { command, .. } if command == &[0xa0, 0x20, 0, 1, 8, 0x31, 0x32, 0x33, 0x34, 0xff, 0xff, 0xff, 0xff])));
+    app.shutdown().unwrap();
+}
+
+fn command_record(
+    id: &str,
+    command: &[u8],
+    data: &[u8],
+    status: u16,
+) -> cardpeek_core::TraceRecord {
+    cardpeek_core::TraceRecord::Command {
+        id: cardpeek_core::TraceRecordId::new(id).unwrap(),
+        command: command.to_vec(),
+        response: ApduResponse::new(
+            data.to_vec(),
+            cardpeek_core::StatusWord::new(
+                u8::try_from(status >> 8).unwrap(),
+                u8::try_from(status & 0xff).unwrap(),
+            ),
+        ),
+    }
+}
+
+fn legacy_mf() -> Vec<u8> {
+    vec![
+        0, 0, 0x57, 0x50, 0x3f, 0, 1, 0, 0xff, 0xff, 0xff, 1, 0x11, 0x33, 3, 0x0c, 0x0b, 0, 0x83,
+        0x8a, 0x83, 0x8a, 0, 0x83, 0x8a, 0x85, 0x85, 0, 0, 0,
+    ]
+}
+
+fn legacy_iccid() -> Vec<u8> {
+    vec![0, 0, 0, 10, 0x2f, 0xe2, 4, 0, 0x0f, 0xff, 0x66, 1, 2, 0, 0]
+}
+
 fn run_request(analyser: &str, name: &str) -> RunAnalyserRequest {
     RunAnalyserRequest {
         analyser: analyser.into(),
@@ -857,6 +1086,12 @@ fn live_only_analyser_uses_legacy_collection_without_a_capture_bundle() {
     let operation = app
         .submit(CommandKind::CollectAnalyser(request.clone()))
         .unwrap();
+    let question = next_request(&events);
+    app.submit(CommandKind::AnswerInteraction(AnswerInteraction {
+        request: question.id,
+        response: InteractionResponse::Bool(false),
+    }))
+    .unwrap();
     wait_for_terminal(&events, &operation);
     assert_eq!(
         app.operation(&operation).unwrap().status,

@@ -11,11 +11,13 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+actions!(cardpeek_dialog, [Confirm]);
 actions!(
     cardpeek_text,
     [
         Backspace,
         Delete,
+        Enter,
         Left,
         Right,
         SelectLeft,
@@ -31,8 +33,10 @@ actions!(
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("enter", Confirm, Some("CardpeekDialog")),
         KeyBinding::new("backspace", Backspace, None),
         KeyBinding::new("delete", Delete, None),
+        KeyBinding::new("enter", Enter, None),
         KeyBinding::new("left", Left, None),
         KeyBinding::new("right", Right, None),
         KeyBinding::new("shift-left", SelectLeft, None),
@@ -53,6 +57,7 @@ pub fn bind_keys(cx: &mut App) {
 #[derive(Clone, Debug)]
 pub enum TextFieldEvent {
     Changed(String),
+    Submitted,
 }
 
 pub struct TextField {
@@ -143,6 +148,10 @@ impl TextField {
 
     fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<'_, Self>) {
         self.move_to(self.content.len(), window, cx);
+    }
+
+    fn enter(&mut self, _: &Enter, _: &mut Window, cx: &mut Context<'_, Self>) {
+        cx.emit(TextFieldEvent::Submitted);
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -626,6 +635,7 @@ impl Render for TextField {
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
+            .on_action(cx.listener(Self::enter))
             .on_action(cx.listener(Self::left))
             .on_action(cx.listener(Self::right))
             .on_action(cx.listener(Self::select_left))
@@ -662,5 +672,91 @@ impl Render for TextField {
 impl Focusable for TextField {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{TestAppContext, WindowOptions};
+
+    use super::*;
+
+    #[gpui::test]
+    fn enter_submits_without_changing_text(cx: &mut TestAppContext) {
+        cx.update(bind_keys);
+        let window = cx.update(|cx| {
+            cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|cx| TextField::new(cx, "response", "", false))
+            })
+            .unwrap()
+        });
+        let field = window.root(cx).unwrap();
+        let focus = cx.read(|cx| field.read(cx).focus_handle(cx));
+        window
+            .update(cx, |_, window, _| window.focus(&focus))
+            .unwrap();
+        let submitted = Rc::new(Cell::new(false));
+        let observed = submitted.clone();
+        cx.update(|cx| {
+            let subscription = cx.subscribe(&field, move |_, event, _| {
+                assert!(matches!(event, TextFieldEvent::Submitted));
+                observed.set(true);
+            });
+            std::mem::forget(subscription);
+        });
+        cx.simulate_keystrokes(window.into(), "enter");
+        assert!(submitted.get());
+        cx.read(|cx| assert_eq!(field.read(cx).text(), "response"));
+    }
+
+    #[gpui::test]
+    fn dialog_enter_uses_scoped_action(cx: &mut TestAppContext) {
+        use std::{cell::Cell, rc::Rc};
+
+        use gpui::{Focusable, Render, WindowOptions};
+
+        struct Dialog {
+            focus: FocusHandle,
+            confirmed: Rc<Cell<bool>>,
+        }
+
+        impl Focusable for Dialog {
+            fn focus_handle(&self, _: &App) -> FocusHandle {
+                self.focus.clone()
+            }
+        }
+
+        impl Render for Dialog {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+                div()
+                    .key_context("CardpeekDialog")
+                    .track_focus(&self.focus)
+                    .on_action(cx.listener(|dialog, _: &Confirm, _, cx| {
+                        dialog.confirmed.set(true);
+                        cx.notify();
+                    }))
+            }
+        }
+
+        cx.update(bind_keys);
+        let confirmed = Rc::new(Cell::new(false));
+        let window = cx.update(|cx| {
+            cx.open_window(WindowOptions::default(), |_, cx| {
+                cx.new(|cx| Dialog {
+                    focus: cx.focus_handle(),
+                    confirmed: confirmed.clone(),
+                })
+            })
+            .unwrap()
+        });
+        let dialog = window.root(cx).unwrap();
+        let focus = cx.read(|cx| dialog.focus_handle(cx));
+        window
+            .update(cx, |_, window, _| window.focus(&focus))
+            .unwrap();
+        cx.simulate_keystrokes(window.into(), "enter");
+        assert!(confirmed.get());
     }
 }

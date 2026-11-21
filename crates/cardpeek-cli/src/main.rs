@@ -479,7 +479,7 @@ fn wait<B: SessionBackend>(
     events: &cardpeek_app::EventSubscription,
     operation: &OperationId,
 ) -> Result<()> {
-    for _ in 0..128 {
+    loop {
         let Some(event) = events.recv_timeout(Duration::from_secs(5)) else {
             return Err(CliError::Timeout(operation.clone()));
         };
@@ -526,7 +526,6 @@ fn wait<B: SessionBackend>(
             _ => {}
         }
     }
-    Err(CliError::Timeout(operation.clone()))
 }
 
 fn hex(bytes: &[u8]) -> String {

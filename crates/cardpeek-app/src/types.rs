@@ -480,6 +480,11 @@ pub enum InteractionKind {
         /// Question text.
         prompt: String,
     },
+    /// A message with one acknowledgement action.
+    Notice {
+        /// Message text.
+        prompt: String,
+    },
     /// Visible text input.
     TextInput {
         /// Input prompt.
@@ -517,6 +522,8 @@ pub enum InteractionResponse {
     Bool(bool),
     /// Visible text input.
     Text(String),
+    /// Acknowledgement of a notice.
+    Acknowledged,
     /// Secret text input.
     Secret(String),
     /// Selected file path.
@@ -528,6 +535,7 @@ impl InteractionResponse {
         matches!(
             (self, request),
             (Self::Bool(_), InteractionKind::Question { .. })
+                | (Self::Acknowledged, InteractionKind::Notice { .. })
                 | (Self::Text(_), InteractionKind::TextInput { .. })
                 | (Self::Secret(_), InteractionKind::SecretInput { .. })
                 | (Self::File(_), InteractionKind::FileSelection { .. })

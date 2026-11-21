@@ -1,12 +1,13 @@
--- Read-only GSM SIM and USIM filesystem analyser.
+-- GSM SIM and USIM filesystem analyser with optional PIN1 verification.
 -- @id gsm-usim
 -- @title GSM SIM and USIM
--- @description Inspect GSM SIM and USIM files without authentication or writes
+-- @description Inspect GSM SIM and USIM files with optional PIN1 verification
 -- @version 1.0.0
 
 local cardpeek = require("cardpeek")
 
 local CONFIG = {
+  offer_pin_verification = true,
   transparent_chunk = 232,
   max_records = 255
 }
@@ -15,6 +16,8 @@ local STATS = {
   files = 0, records = 0, missing = 0, denied = 0,
   read_errors = 0, parse_errors = 0, sensitive_skipped = 0
 }
+
+local PIN_STATE = { asked = false, hint = nil }
 
 local function make_bytes(...)
   local values = {}
@@ -200,7 +203,50 @@ local function read_record(session, record_number, length)
   return transmit(command, session.cla, false)
 end
 
-local function offer_verification()
+local function pin_block(pin, legacy)
+  local values = {}
+  for i = 1, #pin do table.insert(values, string.byte(pin, i)) end
+  if legacy then while #values < 8 do table.insert(values, 0xFF) end end
+  return cardpeek.bytes.new(8, values)
+end
+
+local function ask_question(prompt)
+  local ok, answer = pcall(cardpeek.ui.question, prompt)
+  return ok and answer == true
+end
+
+local function show_notice(message)
+  pcall(cardpeek.ui.notice, message)
+end
+
+local function offer_verification(session)
+  if not CONFIG.offer_pin_verification or PIN_STATE.asked then return false end
+  PIN_STATE.asked = true
+
+  local warning = 'A file requires PIN1/CHV1. Verification changes card security state and a wrong PIN can block it.'
+  if PIN_STATE.hint then warning = warning .. '\nReported attempts remaining: ' .. PIN_STATE.hint end
+  warning = warning .. '\nOnly one verification attempt is allowed in this run. Verify PIN1/CHV1 once?'
+  if not ask_question(warning) then return false end
+
+  local ok, pin = pcall(cardpeek.ui.secret, 'Enter PIN1/CHV1 (4-8 digits; empty cancels)')
+  if not ok or pin == nil or pin == '' then return false end
+  if not string.match(pin, '^%d+$') or #pin < 4 or #pin > 8 then
+    show_notice('PIN not sent: enter exactly 4 to 8 decimal digits.')
+    return false
+  end
+
+  local data = pin_block(pin, session.cla == 0xA0)
+  local command = make_bytes(session.cla, 0x20, 0x00, 0x01, #data, data)
+  local sw = transmit(command, session.cla, false)
+  if sw == 0x9000 then
+    cardpeek.log.info('PIN1/CHV1 verified; retrying the previously failed operation once')
+    show_notice('PIN1/CHV1 verified. Retrying the previously failed operation once.')
+    return true
+  end
+
+  if (sw & 0xFFF0) == 0x63C0 then PIN_STATE.hint = sw & 0x0F end
+  log_warning('PIN1/CHV1 verification failed: ' .. sw_text(sw) .. '; no further attempt in this run')
+  show_notice('PIN verification was not successful: ' .. sw_text(sw) .. '\nNo further verification will be attempted in this run.')
   return false
 end
 
@@ -360,6 +406,7 @@ local function append_metadata(node, response, meta)
       meta.structure, tostring(meta.file_size), tostring(meta.record_length), tostring(meta.record_count)))
     if meta.chv1_status ~= nil then
       append(header, 'item', 'CHV1 status', string.format('0x%02X', meta.chv1_status))
+      PIN_STATE.hint = meta.chv1_status & 0x07
     end
   else
     set_alt(header, 'Unrecognized or empty SELECT response')
@@ -811,7 +858,7 @@ local UST_NAMES = {
 
 local EST_NAMES = { [1] = 'Fixed Dialling Numbers enabled', [2] = 'Barred Dialling Numbers enabled', [3] = 'APN Control List enabled' }
 
-local function decode_service_table(data, names)
+local function decode_gsm_service_table(data, names)
   local allocated, active = {}, {}
   local maximum = math.min(#data * 4, 255)
   for service = 1, maximum do
@@ -826,9 +873,23 @@ local function decode_service_table(data, names)
     '\n\nActivated / enabled:\n' .. (#active > 0 and table.concat(active, '\n') or '(none)')
 end
 
-local function decode_sst(data) return decode_service_table(data, SST_NAMES) end
-local function decode_ust(data) return decode_service_table(data, UST_NAMES) end
-local function decode_est(data) return decode_service_table(data, EST_NAMES) end
+local function decode_usim_service_table(data, names, heading)
+  local available = {}
+  local maximum = #data * 8
+  for service = 1, maximum do
+    local value = byte(data, math.floor((service - 1) / 8))
+    local shift = 7 - ((service - 1) % 8)
+    if ((value >> shift) & 1) ~= 0 then
+      local name = names[service] or string.format('Service %d', service)
+      table.insert(available, string.format('%d. %s', service, name))
+    end
+  end
+  return heading .. ':\n' .. (#available > 0 and table.concat(available, '\n') or '(none)')
+end
+
+local function decode_sst(data) return decode_gsm_service_table(data, SST_NAMES) end
+local function decode_ust(data) return decode_usim_service_table(data, UST_NAMES, 'Available') end
+local function decode_est(data) return decode_usim_service_table(data, EST_NAMES, 'Enabled') end
 
 local function decode_dir(data)
   local aids = {}
@@ -1125,6 +1186,7 @@ local USIM_CHILDREN = {
   ef('6F48', 'Cell broadcast message identifier ranges'), ef('6F49', 'Service dialling numbers (SDN)', decode_adn),
   ef('6F4B', 'Extension 2'), ef('6F4C', 'Extension 3'), ef('6F4D', 'Barred dialling numbers', decode_adn),
   ef('6F4E', 'Extension 5'), ef('6F4F', 'Capability configuration parameters 2'),
+  ef('6F56', 'Enabled services table (EST)', decode_est),
   ef('6F60', 'User controlled PLMN selector with AcT', decode_plmn_act),
   ef('6F61', 'Operator controlled PLMN selector with AcT', decode_plmn_act),
   ef('6F62', 'HPLMN selector with AcT', decode_plmn_act),

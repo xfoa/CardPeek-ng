@@ -234,10 +234,45 @@ pub enum LogLevel {
     Error,
 }
 
+/// Interactive question supplied by an analyser.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InteractionKind {
+    /// A yes or no question.
+    Question,
+    /// A message with one acknowledgement action.
+    Notice,
+    /// Secret text input.
+    Secret,
+}
+
+/// Response to an interactive analyser question.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InteractionResponse {
+    /// Answer to a yes or no question.
+    Bool(bool),
+    /// Acknowledgement of a notice.
+    Acknowledged,
+    /// Secret text input.
+    Secret(String),
+}
+
 /// Bounded event delivery supplied by the application.
 pub trait EventSink {
     /// Emits one structured analyser log message.
     fn log(&self, level: LogLevel, message: &str);
+
+    /// Requests a response without exposing secret values in event payloads.
+    ///
+    /// # Errors
+    ///
+    /// Returns cancellation, timeout, or unavailable-interaction errors.
+    fn interact(
+        &self,
+        _kind: InteractionKind,
+        _prompt: &str,
+    ) -> Result<InteractionResponse, HostError> {
+        Err(HostError::new("interaction is unavailable"))
+    }
 }
 
 impl EventSink for () {

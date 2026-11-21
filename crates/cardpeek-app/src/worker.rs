@@ -16,9 +16,9 @@ use cardpeek_transport::{CardSession, CardStatus, SessionCapabilities};
 use crate::state::SharedState;
 use crate::sync::{CancellationToken, CommandQueue, EventQueue, lock_unpoisoned};
 use crate::{
-    AnalyserContext, AppError, CommandKind, ConnectRequest, Event, EventKind, LogLevel,
-    OperationId, OperationStatus, Result, SessionState, TraceExportMode, emit_to, is_cancellation,
-    transport_error,
+    AnalyserContext, AppError, CommandKind, ConnectRequest, Event, EventKind, InteractionKind,
+    InteractionResponse, LogLevel, OperationId, OperationStatus, Result, SessionState,
+    TraceExportMode, emit_to, is_cancellation, transport_error,
 };
 
 /// Factory for reader discovery and owned card sessions.
@@ -315,8 +315,11 @@ impl<B: SessionBackend> SessionRuntime<B> {
         };
         let context =
             self.analyser_context(&command.operation, request.run_id.clone(), &command.token);
-        let events = WorkerEvents { context };
         let session_info = self.shared.session().ok_or(AppError::NoActiveSession)?;
+        let events = WorkerEvents {
+            context,
+            interactive: session_info.reader.transport != cardpeek_core::TransportKind::Replay,
+        };
         let current_record = host.current_atr_record();
         let mut runtime_host = RuntimeCardHost {
             host,
@@ -364,7 +367,10 @@ impl<B: SessionBackend> SessionRuntime<B> {
         };
         let context =
             self.analyser_context(&command.operation, request.run_id.clone(), &command.token);
-        let events = WorkerEvents { context };
+        let events = WorkerEvents {
+            context,
+            interactive: true,
+        };
         let current_record = host.current_atr_record();
         let mut runtime_host = RuntimeCardHost {
             host: &mut *host,
@@ -600,6 +606,7 @@ fn host_error(error: &AppError) -> HostError {
 
 struct WorkerEvents {
     context: AnalyserContext,
+    interactive: bool,
 }
 
 impl EventSink for WorkerEvents {
@@ -611,6 +618,47 @@ impl EventSink for WorkerEvents {
             cardpeek_analyser::LogLevel::Error => LogLevel::Error,
         };
         self.context.log(level, message);
+    }
+    fn interact(
+        &self,
+        kind: cardpeek_analyser::InteractionKind,
+        prompt: &str,
+    ) -> std::result::Result<cardpeek_analyser::InteractionResponse, cardpeek_analyser::HostError>
+    {
+        if !self.interactive {
+            return Err(cardpeek_analyser::HostError::new(
+                "interaction is unavailable during replay",
+            ));
+        }
+        let kind = match kind {
+            cardpeek_analyser::InteractionKind::Question => InteractionKind::Question {
+                prompt: prompt.into(),
+            },
+            cardpeek_analyser::InteractionKind::Notice => InteractionKind::Notice {
+                prompt: prompt.into(),
+            },
+            cardpeek_analyser::InteractionKind::Secret => InteractionKind::SecretInput {
+                prompt: prompt.into(),
+            },
+        };
+        let response = self
+            .context
+            .interact(kind)
+            .map_err(|error| cardpeek_analyser::HostError::new(error.to_string()))?;
+        match response {
+            InteractionResponse::Bool(value) => {
+                Ok(cardpeek_analyser::InteractionResponse::Bool(value))
+            }
+            InteractionResponse::Acknowledged => {
+                Ok(cardpeek_analyser::InteractionResponse::Acknowledged)
+            }
+            InteractionResponse::Secret(value) => {
+                Ok(cardpeek_analyser::InteractionResponse::Secret(value))
+            }
+            _ => Err(cardpeek_analyser::HostError::new(
+                "interaction response type mismatch",
+            )),
+        }
     }
 }
 
@@ -724,6 +772,7 @@ impl OfflineRuntime {
         };
         let events = WorkerEvents {
             context: self.context(operation, request.run_id.clone(), token),
+            interactive: false,
         };
         let document = cardpeek_lua::decode_capture(&execution, &capture, token, &events)
             .map_err(|error| AppError::Analyser(error.to_string()))?;
@@ -766,6 +815,7 @@ impl OfflineRuntime {
         };
         let events = WorkerEvents {
             context: self.context(operation, request.run_id.clone(), token),
+            interactive: false,
         };
         let mut host = OfflineHost {
             session,

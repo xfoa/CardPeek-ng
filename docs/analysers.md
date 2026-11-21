@@ -366,6 +366,23 @@ Do not log PINs, keys, authentication values, or private cardholder data.
 Use warnings for recoverable card or decoding problems.
 Return a native failure or raise a Lua error when the analyser cannot continue.
 
+## Ask the user
+
+Use a yes or no question for a decision, a notice for acknowledgement, and secret input for a PIN or password:
+
+```lua
+local confirmed = cardpeek.ui.question("Verify PIN1 once?")
+cardpeek.ui.notice("PIN verified")
+local pin = cardpeek.ui.secret("Enter PIN1")
+```
+
+Question calls return a boolean.
+Notice calls wait for the user to select OK.
+Secret calls return text.
+These calls require an interactive frontend.
+Replay and offline decoding do not prompt the user.
+Never put a returned secret in a log or result document.
+
 ## Load local modules
 
 Lua module searches start in the directory that contains the analyser.

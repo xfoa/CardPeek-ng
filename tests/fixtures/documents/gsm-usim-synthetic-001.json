@@ -812,7 +812,7 @@
                       ]
                     }
                   },
-                  "alternative": "Available / allocated:\n3. Extension 2\n4. Service Dialling Numbers\n\nActivated / enabled:\n1. Local Phone Book\n3. Extension 2\n4. Service Dialling Numbers",
+                  "alternative": "Available:\n1. Local Phone Book\n2. Fixed Dialling Numbers\n3. Extension 2\n4. Service Dialling Numbers\n7. Extension 4",
                   "children": [],
                   "extensions": {}
                 }
@@ -1089,8 +1089,8 @@
               "id": "node-0057",
               "parent": "node-0017",
               "class": "file",
-              "label": "Administrative data [6FAD]",
-              "identifier": "6FAD",
+              "label": "Enabled services table (EST) [6F56]",
+              "identifier": "6F56",
               "children": [
                 {
                   "id": "node-0058",
@@ -1108,7 +1108,7 @@
                         128,
                         2,
                         0,
-                        4,
+                        1,
                         130,
                         2,
                         1,
@@ -1116,11 +1116,11 @@
                         131,
                         2,
                         111,
-                        173
+                        86
                       ]
                     }
                   },
-                  "alternative": "FCP; transparent; size=4; record length=nil; records=nil",
+                  "alternative": "FCP; transparent; size=1; record length=nil; records=nil",
                   "children": [
                     {
                       "id": "node-0059",
@@ -1135,7 +1135,7 @@
                           "width": 8,
                           "elements": [
                             0,
-                            4
+                            1
                           ]
                         }
                       },
@@ -1179,6 +1179,117 @@
                   "parent": "node-0057",
                   "class": "body",
                   "label": "Data",
+                  "size_bits": 8,
+                  "value": {
+                    "kind": "bytes",
+                    "value": {
+                      "width": 8,
+                      "elements": [
+                        160
+                      ]
+                    }
+                  },
+                  "alternative": "Enabled:\n1. Fixed Dialling Numbers enabled\n3. APN Control List enabled",
+                  "children": [],
+                  "extensions": {}
+                }
+              ],
+              "extensions": {}
+            },
+            {
+              "id": "node-0063",
+              "parent": "node-0017",
+              "class": "file",
+              "label": "Administrative data [6FAD]",
+              "identifier": "6FAD",
+              "children": [
+                {
+                  "id": "node-0064",
+                  "parent": "node-0063",
+                  "class": "header",
+                  "label": "SELECT response",
+                  "size_bits": 112,
+                  "value": {
+                    "kind": "bytes",
+                    "value": {
+                      "width": 8,
+                      "elements": [
+                        98,
+                        11,
+                        128,
+                        2,
+                        0,
+                        4,
+                        130,
+                        2,
+                        1,
+                        0,
+                        131,
+                        2,
+                        111,
+                        173
+                      ]
+                    }
+                  },
+                  "alternative": "FCP; transparent; size=4; record length=nil; records=nil",
+                  "children": [
+                    {
+                      "id": "node-0065",
+                      "parent": "node-0064",
+                      "class": "item",
+                      "label": "File size",
+                      "identifier": "80",
+                      "size_bits": 16,
+                      "value": {
+                        "kind": "bytes",
+                        "value": {
+                          "width": 8,
+                          "elements": [
+                            0,
+                            4
+                          ]
+                        }
+                      },
+                      "children": [],
+                      "extensions": {}
+                    },
+                    {
+                      "id": "node-0066",
+                      "parent": "node-0064",
+                      "class": "item",
+                      "label": "File descriptor",
+                      "identifier": "82",
+                      "size_bits": 16,
+                      "value": {
+                        "kind": "bytes",
+                        "value": {
+                          "width": 8,
+                          "elements": [
+                            1,
+                            0
+                          ]
+                        }
+                      },
+                      "children": [],
+                      "extensions": {}
+                    },
+                    {
+                      "id": "node-0067",
+                      "parent": "node-0064",
+                      "class": "item",
+                      "label": "File identifier",
+                      "identifier": "83",
+                      "children": [],
+                      "extensions": {}
+                    }
+                  ],
+                  "extensions": {}
+                },
+                {
+                  "id": "node-0068",
+                  "parent": "node-0063",
+                  "class": "body",
+                  "label": "Data",
                   "size_bits": 32,
                   "value": {
                     "kind": "bytes",
@@ -1203,11 +1314,11 @@
           "extensions": {}
         },
         {
-          "id": "node-0063",
+          "id": "node-0069",
           "parent": "node-0001",
           "class": "block",
           "label": "Analysis summary",
-          "alternative": "Profiles detected: USIM A0000000871002FFFFFFFF8907090000\nFiles selected: 9\nRecords read: 1\nAbsent files: 47\nAccess-denied operations: 1\nOther read/select errors: 0\nDecoder errors: 0\nSensitive files not read: 1",
+          "alternative": "Profiles detected: USIM A0000000871002FFFFFFFF8907090000\nFiles selected: 10\nRecords read: 1\nAbsent files: 47\nAccess-denied operations: 1\nOther read/select errors: 0\nDecoder errors: 0\nSensitive files not read: 1",
           "children": [],
           "extensions": {}
         }

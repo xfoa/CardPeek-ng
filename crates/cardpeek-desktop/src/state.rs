@@ -143,6 +143,7 @@ pub struct DesktopState {
     pub document: Option<DocumentSnapshot>,
     pub selected_node: Option<String>,
     pub expanded: HashSet<String>,
+    pub search_expanded: HashSet<String>,
     pub search: String,
     pub logs: Vec<LogEntry>,
     pub exchanges: Vec<Exchange>,
@@ -192,6 +193,7 @@ impl Default for DesktopState {
             document: None,
             selected_node: None,
             expanded: HashSet::new(),
+            search_expanded: HashSet::new(),
             search: String::new(),
             logs: Vec::new(),
             exchanges: Vec::new(),
@@ -453,6 +455,7 @@ impl DesktopState {
         self.document = None;
         self.selected_node = None;
         self.expanded.clear();
+        self.search_expanded.clear();
         self.exchanges.clear();
         self.logs.clear();
         Some((run_id, document_id))
@@ -584,11 +587,46 @@ impl DesktopState {
             .iter()
             .flat_map(collect_branch_ids)
             .collect();
+        self.search_expanded.clear();
         self.document = Some(snapshot);
     }
 
     pub fn set_search(&mut self, search: String) {
+        let was_searching = !self.search.trim().is_empty();
+        let searching = !search.trim().is_empty();
+        if was_searching && !searching {
+            let search_expanded: Vec<_> = self.search_expanded.drain().collect();
+            if let Some(document) = &self.document {
+                for id in &search_expanded {
+                    if let Some(node) = document
+                        .document
+                        .roots
+                        .iter()
+                        .find_map(|node| find(node, id))
+                    {
+                        self.expanded.extend(
+                            ancestor_ids(node, &document.document.roots)
+                                .into_iter()
+                                .map(str::to_string),
+                        );
+                    }
+                }
+            }
+            self.expanded.extend(search_expanded);
+        } else if was_searching != searching {
+            self.search_expanded.clear();
+        }
         self.search = search;
+    }
+
+    pub fn toggle_node(&mut self, id: &str) {
+        if self.search.trim().is_empty() {
+            if !self.expanded.remove(id) {
+                self.expanded.insert(id.into());
+            }
+        } else if !self.search_expanded.remove(id) {
+            self.search_expanded.insert(id.into());
+        }
     }
 
     #[must_use]
@@ -599,9 +637,22 @@ impl DesktopState {
         let query = self.search.trim().to_lowercase();
         let mut rows = Vec::new();
         for node in &document.document.roots {
-            collect_rows(node, 0, &query, &self.expanded, &mut rows);
+            collect_rows(
+                node,
+                0,
+                &query,
+                false,
+                &self.expanded,
+                &self.search_expanded,
+                &mut rows,
+            );
         }
         rows
+    }
+
+    #[must_use]
+    pub fn search_expanded_ids(&self) -> &HashSet<String> {
+        &self.search_expanded
     }
 
     #[must_use]
@@ -800,6 +851,19 @@ fn first_node(nodes: &[ResultNode]) -> Option<&ResultNode> {
     nodes.first()
 }
 
+fn ancestor_ids<'a>(node: &'a ResultNode, roots: &'a [ResultNode]) -> Vec<&'a str> {
+    let mut ids = Vec::new();
+    let mut parent = node.parent.as_ref();
+    while let Some(id) = parent {
+        let Some(ancestor) = roots.iter().find_map(|root| find(root, id.as_str())) else {
+            break;
+        };
+        ids.push(ancestor.id.as_str());
+        parent = ancestor.parent.as_ref();
+    }
+    ids
+}
+
 fn collect_branch_ids(node: &ResultNode) -> Vec<String> {
     let mut ids = if node.children.is_empty() {
         Vec::new()
@@ -816,30 +880,41 @@ fn collect_rows<'a>(
     node: &'a ResultNode,
     depth: usize,
     query: &str,
+    within_match: bool,
     expanded_ids: &HashSet<String>,
+    search_expanded_ids: &HashSet<String>,
     rows: &mut Vec<ResultRow<'a>>,
 ) -> bool {
-    let matches = query.is_empty() || node_matches(node, query);
+    let matches = within_match || node_matches(node, query);
     let mut visible = matches;
     let mut children = Vec::new();
     for child in &node.children {
-        if collect_rows(child, depth + 1, query, expanded_ids, &mut children) {
+        if collect_rows(
+            child,
+            depth + 1,
+            query,
+            matches,
+            expanded_ids,
+            search_expanded_ids,
+            &mut children,
+        ) {
             visible = true;
         }
     }
     if !visible {
         return false;
     }
-    let expanded = expanded_ids.contains(node.id.as_str());
+    let searching = !query.is_empty();
+    let expanded = search_expanded_ids.contains(node.id.as_str())
+        || (!searching && expanded_ids.contains(node.id.as_str()));
     rows.push(ResultRow {
         node,
         depth,
-        expanded,
+        expanded: expanded || searching && !matches,
     });
-    if query.is_empty() && !expanded {
-        return true;
+    if searching && !matches || expanded {
+        rows.extend(children);
     }
-    rows.extend(children);
     true
 }
 

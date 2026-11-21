@@ -572,7 +572,7 @@ fn result_rows_preserve_order_expansion_and_search() {
         document: Arc::new(document),
     });
     let rows = state.visible_rows();
-    assert_eq!(rows.len(), 63);
+    assert_eq!(rows.len(), 69);
     let expanded_ids: Vec<_> = rows.iter().map(|row| row.node.id.to_string()).collect();
     drop(rows);
     state.expanded.remove("node-0001");
@@ -597,6 +597,60 @@ fn result_rows_preserve_order_expansion_and_search() {
     );
     state.set_search("not-present".into());
     assert!(state.visible_rows().is_empty());
+}
+
+#[test]
+fn search_collapses_matches_and_preserves_manual_expansion() {
+    let document = ResultDocument::from_json(
+        &std::fs::read_to_string(fixture("documents/gsm-usim-synthetic-001.json")).unwrap(),
+    )
+    .unwrap();
+    let mut state = DesktopState::default();
+    state.publish_document(DocumentSnapshot {
+        run_id: document.run_id.clone(),
+        revision: document.revision,
+        document: Arc::new(document),
+    });
+    state.collapse_to_second_level();
+    let expanded = state.expanded.clone();
+
+    state.set_search("sms".into());
+    let rows = state.visible_rows();
+    let sms = rows
+        .iter()
+        .find(|row| row.node.id.as_str() == "node-0045")
+        .unwrap();
+    assert!(!sms.expanded);
+    assert!(!rows.iter().any(|row| row.node.id.as_str() == "node-0046"));
+    drop(rows);
+
+    state.toggle_node("node-0045");
+    let rows = state.visible_rows();
+    assert!(rows.iter().any(|row| row.node.id.as_str() == "node-0046"));
+    assert!(!rows.iter().any(|row| row.node.label == "File size"));
+    drop(rows);
+    state.toggle_node("node-0046");
+    let rows = state.visible_rows();
+    assert!(rows.iter().any(|row| row.node.label == "File size"));
+    assert_eq!(state.expanded, expanded);
+    drop(rows);
+
+    state.set_search(String::new());
+    let mut expected = expanded;
+    expected.extend([
+        "node-0001".into(),
+        "node-0017".into(),
+        "node-0045".into(),
+        "node-0046".into(),
+    ]);
+    assert_eq!(state.expanded, expected);
+    assert!(state.search_expanded_ids().is_empty());
+    assert!(
+        state
+            .visible_rows()
+            .iter()
+            .any(|row| row.node.label == "File size")
+    );
 }
 
 fn event(operation: &OperationId, kind: EventKind) -> cardpeek_app::Event {
